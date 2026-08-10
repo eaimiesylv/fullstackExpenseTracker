@@ -2,11 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Mail\DynamicAppMail;
+use App\Models\EmailVerificationOtp;
 use App\Models\GroupMember;
 use App\Models\Invite;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 class RegisterTest extends TestCase
@@ -117,7 +120,7 @@ class RegisterTest extends TestCase
         $response->assertCreated();
         $response->assertJsonMissing(['password']);
 
-        $user = User::where('email', 'john@example.com')->firstOrFail();
+        $user = User::query()->where('email', 'john@example.com')->firstOrFail();
 
         $this->assertTrue(Hash::check('Password@123', $user->password));
     }
@@ -134,6 +137,32 @@ class RegisterTest extends TestCase
 
         $response->assertCreated()->assertJsonPath('data.token_type', 'Bearer');
         $this->assertIsString($response->json('data.token'));
+    }
+
+    public function test_registration_sends_an_otp_verification_email_when_email_is_provided(): void
+    {
+        Mail::fake();
+
+        $response = $this->postJson('/api/auth/register', [
+            'fullname' => 'John Doe',
+            'email' => 'john@example.com',
+            'phone_number' => '+2348012345678',
+            'password' => 'Password@123',
+            'password_confirmation' => 'Password@123',
+        ]);
+
+        $response->assertCreated();
+
+        Mail::assertSent(DynamicAppMail::class, function (DynamicAppMail $mail): bool {
+            $this->assertSame('Verify your email address', $mail->data['subject']);
+            $this->assertSame('John Doe', $mail->data['full_name']);
+            $this->assertSame('john@example.com', $mail->data['user_data']['email']);
+
+            return true;
+        });
+
+        $user = User::query()->where('email', 'john@example.com')->firstOrFail();
+        $this->assertTrue(EmailVerificationOtp::query()->where('user_id', $user->id)->exists());
     }
 
     public function test_guest_can_register_using_valid_invitation(): void
@@ -167,7 +196,7 @@ class RegisterTest extends TestCase
 
         $response->assertCreated()->assertJson(['success' => true]);
 
-        $user = User::where('email', 'peter@example.com')->firstOrFail();
+        $user = User::query()->where('email', 'peter@example.com')->firstOrFail();
         $groupMember->refresh();
         $invite->refresh();
 

@@ -10,9 +10,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('expense_splits', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('expense_id')->constrained('expenses')->cascadeOnDelete();
-            $table->foreignId('group_member_id')->constrained('group_members')->cascadeOnDelete();
+            $table->ulid('id')->primary();
+            $table->foreignUlid('expense_id')->constrained('expenses')->cascadeOnDelete();
+            $table->foreignUlid('group_member_id')->constrained('group_members')->cascadeOnDelete();
             $table->string('split_type')->default('equal')->index();
             $table->decimal('amount', 15, 2)->nullable();
             $table->decimal('percentage', 5, 2)->nullable();

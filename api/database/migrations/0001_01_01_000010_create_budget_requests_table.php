@@ -10,15 +10,15 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('budget_requests', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('budget_id')->constrained('budgets')->cascadeOnDelete();
-            $table->foreignId('group_member_id')->constrained('group_members')->cascadeOnDelete();
+            $table->ulid('id')->primary();
+            $table->foreignUlid('budget_id')->constrained('budgets')->cascadeOnDelete();
+            $table->foreignUlid('group_member_id')->constrained('group_members')->cascadeOnDelete();
             $table->string('title');
             $table->text('description')->nullable();
             $table->decimal('amount', 15, 2);
             $table->string('request_type')->default('planned_expense')->index();
             $table->string('status')->default('pending')->index();
-            $table->foreignId('approved_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignUlid('approved_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('approved_at')->nullable();
             $table->text('rejection_reason')->nullable();
             $table->timestamps();

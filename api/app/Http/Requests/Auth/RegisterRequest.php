@@ -47,18 +47,18 @@ class RegisterRequest extends FormRequest
         ];
     }
 
-    protected function prepareForValidation(): void
-    {
-        if ($this->has('email')) {
-            $this->merge(['email' => $this->email ? Str::lower(trim($this->email)) : null]);
-        }
+    // protected function prepareForValidation(): void
+    // {
+    //     if ($this->has('email')) {
+    //         $this->merge(['email' => $this->email ? Str::lower(trim($this->email)) : null]);
+    //     }
 
-        if ($this->has('phone_number')) {
-            $phone = trim($this->phone_number ?? '');
-            $phone = $phone !== '' ? preg_replace('/[^\d+]/', '', $phone) : null;
-            $this->merge(['phone_number' => $phone]);
-        }
-    }
+    //     if ($this->has('phone_number')) {
+    //         $phone = trim($this->phone_number ?? '');
+    //         $phone = $phone !== '' ? preg_replace('/[^\d+]/', '', $phone) : null;
+    //         $this->merge(['phone_number' => $phone]);
+    //     }
+    // }
 
     public function messages(): array
     {

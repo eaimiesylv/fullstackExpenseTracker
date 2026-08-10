@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('budget_categories', function (Blueprint $table) {
-            $table->id();
+            $table->ulid('id')->primary();
             $table->string('category_name')->unique();
             $table->timestamps();
         });

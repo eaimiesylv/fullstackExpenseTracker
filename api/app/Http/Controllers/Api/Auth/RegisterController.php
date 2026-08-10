@@ -5,62 +5,104 @@ namespace App\Http\Controllers\Api\Auth;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Resources\UserResource;
-use App\Models\Invite;
+use App\Models\EmailVerificationOtp;
 use App\Models\User;
+use App\Services\Email\AppMailService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class RegisterController extends Controller
 {
+    public function __construct(protected AppMailService $appMailService)
+    {
+    }
+
     public function __invoke(RegisterRequest $request): JsonResponse
     {
         $validated = $request->validated();
 
-        return DB::transaction(function () use ($validated) {
-            $invite = null;
+        $user = User::create([
+            'fullname' => $validated['fullname'],
+            'email' => $validated['email'] ?? null,
+            'phone_number' => $validated['phone_number'] ?? null,
+            'password' => Hash::make($validated['password']),
+        ]);
 
-            if (! empty($validated['invite_token'])) {
-                $invite = Invite::where('token', $validated['invite_token'])
-                    ->where('status', 'pending')
-                    ->where('expires_at', '>', now())
-                    ->first();
+        if (!empty($user->email)) {
+            EmailVerificationOtp::query()
+                ->where('user_id', $user->id)
+                ->whereNull('used_at')
+                ->where('expires_at', '>', now())
+                ->update(['used_at' => now()]);
 
-                if (! $invite || ! $invite->groupMember || $invite->groupMember->user_id !== null) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'The invitation is invalid or has expired.',
-                    ], 422);
-                }
-            }
+            $otp = (string) random_int(100000, 999999);
 
-            $user = User::create([
-                'fullname' => $validated['fullname'],
-                'email' => $validated['email'] ?? null,
-                'phone_number' => $validated['phone_number'] ?? null,
-                'password' => Hash::make($validated['password']),
-                'status' => 'active',
+            EmailVerificationOtp::create([
+                'user_id' => $user->id,
+                'otp' => Hash::make($otp),
+                'expires_at' => now()->addMinutes(10),
+                'attempts' => 0,
             ]);
 
-            if ($invite) {
-                $invite->groupMember->update(['user_id' => $user->id]);
-                $invite->update([
-                    'status' => 'accepted',
-                    'accepted_at' => now(),
-                ]);
-            }
-
-            $token = $user->createToken('api-token')->plainTextToken;
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Registration successful.',
-                'data' => [
-                    'user' => new UserResource($user),
-                    'token' => $token,
-                    'token_type' => 'Bearer',
+            
+            $this->appMailService->send('email_verification_otp', $user->email, [
+                'user_data' => [
+                    'full_name' => $user->fullname,
+                    'email'     => $user->email,
                 ],
-            ], 201);
-        });
+
+                'subject' => 'Verify your email address',
+
+                'content1' => '
+                    <p>Welcome to Gochacha!</p>
+
+                    <p>
+                        Thank you for creating an account with us.
+                        Please use the verification code below to verify your email address.
+                    </p>
+                ',
+
+                'content2' => '
+                    <div style="margin: 24px 0; text-align: center;">
+                        <div style="
+                            display: inline-block;
+                            padding: 16px 28px;
+                            background: #f6f7fb;
+                            border: 1px solid #e5e7eb;
+                            border-radius: 10px;
+                            font-size: 32px;
+                            font-weight: 700;
+                            letter-spacing: 8px;
+                            color: #111827;
+                        ">
+                            ' . e($otp) . '
+                        </div>
+                    </div>
+
+                    <p>
+                        This verification code will expire in <strong>10 minutes</strong>
+                        and can only be used once.
+                    </p>
+
+                    <p>
+                        If you did not create this account, you can safely ignore this email.
+                    </p>
+                ',
+
+                'frontend_url' => '',
+                'btn_label'    => '',
+            ]);
+
+
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Registration successful.',
+            'data' => [
+                'user' => new UserResource($user),
+                
+            ],
+        ], 201);
     }
 }
