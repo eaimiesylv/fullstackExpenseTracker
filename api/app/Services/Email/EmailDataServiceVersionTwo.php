@@ -96,4 +96,23 @@ class EmailDataServiceVersionTwo
 
         return array_merge($defaults, $parameters);
     }
+
+    private static function password_reset_otp(array $parameters = []): array
+    {
+        $fullName = self::resolveFullName($parameters);
+
+        $defaults = [
+            'company_name' => config('app.company_name'),
+            'salutation' => self::buildSalutation($fullName),
+            'full_name' => $fullName ?: null,
+            'subject' => 'Reset your password',
+            'content1' => self::formatEmailContent('Use the code below to reset your password.'),
+            'content2' => self::formatEmailContent('This code will expire in 10 minutes and can only be used once. Please do not share it with anyone.'),
+            'sender' => config('app.sender_name'),
+            'frontend_url' => '',
+            'btn_label' => '',
+        ];
+
+        return array_merge($defaults, $parameters);
+    }
 }
