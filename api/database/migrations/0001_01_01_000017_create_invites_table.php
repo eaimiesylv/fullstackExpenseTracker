@@ -9,10 +9,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('invites', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('group_id')->constrained('groups')->cascadeOnDelete();
-            $table->foreignId('group_member_id')->nullable()->constrained('group_members')->nullOnDelete();
-            $table->foreignId('invited_by')->constrained('users')->restrictOnDelete();
+            $table->ulid('id')->primary();
+            $table->foreignUlid('group_id')->constrained('groups')->cascadeOnDelete();
+            $table->foreignUlid('group_member_id')->nullable()->constrained('group_members')->nullOnDelete();
+            $table->foreignUlid('invited_by')->constrained('users')->restrictOnDelete();
             $table->string('email')->nullable()->index();
             $table->string('phone_number')->nullable()->index();
             $table->string('token')->unique();

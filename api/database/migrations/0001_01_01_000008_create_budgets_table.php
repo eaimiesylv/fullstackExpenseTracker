@@ -10,15 +10,15 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('budgets', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('owner_id')->nullable()->constrained('users')->nullOnDelete();
-            $table->foreignId('group_id')->nullable()->constrained('groups')->cascadeOnDelete();
-            $table->foreignId('budget_category_id')->nullable()->constrained('budget_categories')->nullOnDelete();
+            $table->ulid('id')->primary();
+            $table->foreignUlid('owner_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignUlid('group_id')->nullable()->constrained('groups')->cascadeOnDelete();
+            $table->foreignUlid('budget_category_id')->nullable()->constrained('budget_categories')->nullOnDelete();
             $table->string('budget_name');
             $table->text('description')->nullable();
             $table->string('scope')->default('personal')->index();
             $table->string('purpose_type')->default('standard')->index();
-            $table->decimal('amount', 15, 2);
+            $table->unsignedBigInteger('amount');
             $table->string('currency', 3)->default('NGN');
             $table->date('start_date');
             $table->date('end_date')->nullable();

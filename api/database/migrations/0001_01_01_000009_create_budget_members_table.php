@@ -9,9 +9,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('budget_members', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('budget_id')->constrained('budgets')->cascadeOnDelete();
-            $table->foreignId('group_member_id')->constrained('group_members')->cascadeOnDelete();
+            $table->ulid('id')->primary();
+            $table->foreignUlid('budget_id')->constrained('budgets')->cascadeOnDelete();
+            $table->foreignUlid('group_member_id')->constrained('group_members')->cascadeOnDelete();
             $table->string('role')->default('viewer');
             $table->boolean('can_view')->default(true);
             $table->boolean('can_submit')->default(false);

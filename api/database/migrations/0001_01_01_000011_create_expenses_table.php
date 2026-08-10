@@ -10,12 +10,12 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('expenses', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
-            $table->foreignId('group_id')->nullable()->constrained('groups')->nullOnDelete();
-            $table->foreignId('group_member_id')->nullable()->constrained('group_members')->nullOnDelete();
-            $table->foreignId('budget_id')->nullable()->constrained('budgets')->nullOnDelete();
-            $table->foreignId('expense_category_id')->nullable()->constrained('expense_categories')->nullOnDelete();
+            $table->ulid('id')->primary();
+            $table->foreignUlid('user_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignUlid('group_id')->nullable()->constrained('groups')->nullOnDelete();
+            $table->foreignUlid('group_member_id')->nullable()->constrained('group_members')->nullOnDelete();
+            $table->foreignUlid('budget_id')->nullable()->constrained('budgets')->nullOnDelete();
+            $table->foreignUlid('expense_category_id')->nullable()->constrained('expense_categories')->nullOnDelete();
             $table->string('title');
             $table->text('description')->nullable();
             $table->decimal('amount', 15, 2);
@@ -23,7 +23,7 @@ return new class extends Migration
             $table->string('expense_type')->default('personal')->index();
             $table->date('expense_date')->index();
             $table->string('status')->default('pending')->index();
-            $table->foreignId('approved_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignUlid('approved_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('approved_at')->nullable();
             $table->timestamps();
             $table->index(['budget_id', 'user_id', 'group_member_id', 'expense_category_id'], 'expenses_budget_user_group_exp_cat_idx');

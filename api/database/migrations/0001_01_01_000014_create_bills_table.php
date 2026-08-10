@@ -10,10 +10,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('bills', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('owner_id')->nullable()->constrained('users')->nullOnDelete();
-            $table->foreignId('group_id')->nullable()->constrained('groups')->nullOnDelete();
-            $table->foreignId('bill_category_id')->nullable()->constrained('bill_categories')->nullOnDelete();
+            $table->ulid('id')->primary();
+            $table->foreignUlid('owner_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignUlid('group_id')->nullable()->constrained('groups')->nullOnDelete();
+            $table->foreignUlid('bill_category_id')->nullable()->constrained('bill_categories')->nullOnDelete();
             $table->string('title');
             $table->text('description')->nullable();
             $table->decimal('amount', 15, 2);

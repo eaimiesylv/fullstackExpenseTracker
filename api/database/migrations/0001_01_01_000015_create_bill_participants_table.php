@@ -10,9 +10,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('bill_participants', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('bill_id')->constrained('bills')->cascadeOnDelete();
-            $table->foreignId('group_member_id')->constrained('group_members')->cascadeOnDelete();
+            $table->ulid('id')->primary();
+            $table->foreignUlid('bill_id')->constrained('bills')->cascadeOnDelete();
+            $table->foreignUlid('group_member_id')->constrained('group_members')->cascadeOnDelete();
             $table->decimal('amount', 15, 2);
             $table->string('status')->default('pending')->index();
             $table->timestamp('paid_at')->nullable();
