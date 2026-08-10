@@ -19,7 +19,7 @@ return new class extends Migration
             $table->string('password')->nullable();
             $table->timestamp('email_verified_at')->nullable();
             $table->timestamp('phone_verified_at')->nullable();
-            $table->string('status')->default('in-active')->index();
+            $table->string('status')->default('active')->index();
             $table->string('profile_image', 255)->nullable();
             $table->timestamps();
         });
@@ -30,14 +30,14 @@ return new class extends Migration
             $table->timestamp('created_at')->nullable();
         });
 
-        // Schema::create('sessions', function (Blueprint $table) {
-        //     $table->string('id')->primary();
-        //     $table->foreignUlid('user_id')->nullable()->index()->constrained()->nullOnDelete();
-        //     $table->string('ip_address', 45)->nullable();
-        //     $table->text('user_agent')->nullable();
-        //     $table->longText('payload');
-        //     $table->integer('last_activity')->index();
-        // });
+        Schema::create('sessions', function (Blueprint $table) {
+            $table->string('id')->primary();
+            $table->foreignUlid('user_id')->nullable()->index()->constrained()->nullOnDelete();
+            $table->string('ip_address', 45)->nullable();
+            $table->text('user_agent')->nullable();
+            $table->longText('payload');
+            $table->integer('last_activity')->index();
+        });
     }
 
     /**

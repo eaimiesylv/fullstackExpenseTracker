@@ -4,19 +4,19 @@ namespace App\Http\Controllers\Api\Auth;
 
 use App\Enums\OtpPurpose;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Auth\ResendEmailOtpRequest;
+use App\Http\Requests\Auth\ResendVerificationOtpRequest;
 use App\Models\User;
 use App\Services\Auth\OtpService;
 use App\Services\Email\AppMailService;
 use Illuminate\Http\JsonResponse;
 
-class ResendEmailOtpController extends Controller
+class ResendVerificationOtpController extends Controller
 {
     public function __construct(protected AppMailService $appMailService, protected OtpService $otpService)
     {
     }
 
-    public function __invoke(ResendEmailOtpRequest $request): JsonResponse
+    public function __invoke(ResendVerificationOtpRequest $request): JsonResponse
     {
         $validated = $request->validated();
 
@@ -24,9 +24,9 @@ class ResendEmailOtpController extends Controller
 
         if (! $user) {
             return response()->json([
-                'success' => false,
-                'message' => 'We could not process your request at this time.',
-            ], 404);
+                'success' => true,
+                'message' => 'If an account exists, a new verification code has been sent.',
+            ]);
         }
 
         if (! is_null($user->email_verified_at)) {
@@ -44,10 +44,8 @@ class ResendEmailOtpController extends Controller
                 'email' => $user->email,
             ],
             'subject' => 'Verify your email address',
-            'content1' => 'Your email verification code is:',
+            'content1' => 'Your new verification code is below.',
             'content2' => $otp,
-            'frontend_url' => '',
-            'btn_label' => '',
         ]);
 
         return response()->json([

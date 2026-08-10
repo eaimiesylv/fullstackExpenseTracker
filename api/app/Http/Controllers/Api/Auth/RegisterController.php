@@ -5,15 +5,16 @@ namespace App\Http\Controllers\Api\Auth;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Resources\UserResource;
-use App\Models\EmailVerificationOtp;
+use App\Enums\OtpPurpose;
 use App\Models\User;
+use App\Services\Auth\OtpService;
 use App\Services\Email\AppMailService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Hash;
 
 class RegisterController extends Controller
 {
-    public function __construct(protected AppMailService $appMailService)
+    public function __construct(protected AppMailService $appMailService, protected OtpService $otpService)
     {
     }
 
@@ -29,22 +30,8 @@ class RegisterController extends Controller
         ]);
 
         if (!empty($user->email)) {
-            EmailVerificationOtp::query()
-                ->where('user_id', $user->id)
-                ->whereNull('used_at')
-                ->where('expires_at', '>', now())
-                ->update(['used_at' => now()]);
+            $otp = $this->otpService->generate($user, OtpPurpose::EMAIL_VERIFICATION);
 
-            $otp = (string) random_int(100000, 999999);
-
-            EmailVerificationOtp::create([
-                'user_id' => $user->id,
-                'otp' => Hash::make($otp),
-                'expires_at' => now()->addMinutes(10),
-                'attempts' => 0,
-            ]);
-
-            
             $this->appMailService->send('email_verification_otp', $user->email, [
                 'user_data' => [
                     'full_name' => $user->fullname,
