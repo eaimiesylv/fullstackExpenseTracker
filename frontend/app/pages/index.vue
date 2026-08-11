@@ -1,4 +1,6 @@
 <script setup>
+import { useAuthStore } from '~/stores/auth'
+
 definePageMeta({
   layout: false,
 })
@@ -23,13 +25,13 @@ useHead({
   },
 })
 
-// Replace Laravel's Route::has() checks — adjust these paths/flags
-// to match your actual Nuxt routes (e.g. from your auth module).
-const hasLogin = true
-const hasRegister = true
+const authStore = useAuthStore()
+const isAuthenticated = computed(() => authStore.isAuthenticated)
 
-const loginRoute = hasLogin ? '/login' : '#'
-const registerRoute = hasRegister ? '/register' : '#start'
+
+const loginRoute = '/login'
+const registerRoute = '/register'
+const dashboardRoute = '/dashboard'
 
 const currentYear = new Date().getFullYear()
 </script>
@@ -46,20 +48,19 @@ const currentYear = new Date().getFullYear()
           </span>
           <span class="font-display text-lg font-bold tracking-tight">LedgerFlow</span>
         </NuxtLink>
-
         <div class="flex items-center gap-3">
           <NuxtLink
-            v-if="hasLogin"
+            v-if="!isAuthenticated"
             :to="loginRoute"
             class="hidden text-sm font-medium text-slate-600 hover:text-slate-900 sm:inline-block"
           >
             Log in
           </NuxtLink>
           <NuxtLink
-            :to="registerRoute"
+            :to="isAuthenticated ? dashboardRoute : registerRoute"
             class="grad-cta rounded-full px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-emerald-200 transition hover:brightness-105"
           >
-            Start Free
+            {{ isAuthenticated ? 'Dashboard' : 'Start Free' }}
           </NuxtLink>
         </div>
       </nav>
@@ -277,10 +278,10 @@ const currentYear = new Date().getFullYear()
             This app is built to make everyday money management simple for individuals and groups.
           </p>
           <div class="mt-8 flex flex-wrap items-center justify-center gap-4">
-            <NuxtLink :to="registerRoute" class="grad-cta rounded-full px-7 py-3.5 text-base font-semibold text-white shadow-lg">
-              Create an account
+            <NuxtLink :to="isAuthenticated ? dashboardRoute : registerRoute" class="grad-cta rounded-full px-7 py-3.5 text-base font-semibold text-white shadow-lg">
+              {{ isAuthenticated ? 'Go to dashboard' : 'Create an account' }}
             </NuxtLink>
-            <NuxtLink :to="loginRoute" class="rounded-full border border-white/25 px-7 py-3.5 text-base font-semibold text-white hover:bg-white/10">
+            <NuxtLink v-if="!isAuthenticated" :to="loginRoute" class="rounded-full border border-white/25 px-7 py-3.5 text-base font-semibold text-white hover:bg-white/10">
               Log in
             </NuxtLink>
           </div>

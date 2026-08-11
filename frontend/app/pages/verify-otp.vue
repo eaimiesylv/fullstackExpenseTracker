@@ -25,6 +25,13 @@ const actualEmail = computed(() => (route.query.email as string) || '')
 // 'register' -> new account verification, lands on the dashboard
 // 'reset' -> forgot-password flow, lands on the reset-password screen
 const purpose = computed(() => (route.query.purpose as string) === 'reset' ? 'reset' : 'register')
+const flowMessage = computed(() => authStore.otpFlow?.message || (purpose.value === 'reset' ? 'If an account exists, a password reset code has been sent.' : 'Verify your email address using the verification code sent to your email.'))
+
+function validateFlow() {
+  if (!authStore.otpFlow || authStore.otpFlow.email !== actualEmail.value || authStore.otpFlow.purpose !== purpose.value) {
+    router.replace(purpose.value === 'reset' ? '/forgot-password' : '/login')
+  }
+}
 
 const RESEND_SECONDS = 120
 
@@ -56,7 +63,10 @@ function startTimer() {
   }, 1000)
 }
 
-onMounted(startTimer)
+onMounted(() => {
+  validateFlow()
+  startTimer()
+})
 onUnmounted(() => {
   if (timer) clearInterval(timer)
 })
@@ -139,8 +149,10 @@ async function handleResend() {
 
         <h1 class="font-display text-2xl font-bold text-slate-900">Verify your email</h1>
         <p class="mt-2 text-sm text-slate-600">
-          Enter the 6-digit code we sent to
-          <span class="font-medium text-slate-900">{{ email }}</span>.
+          {{ flowMessage }}
+        </p>
+        <p v-if="email !== 'your email'" class="mt-1 text-sm text-slate-500">
+          We sent it to <span class="font-medium text-slate-900">{{ email }}</span>.
         </p>
 
         <form class="mt-8" novalidate @submit.prevent="handleSubmit">

@@ -42,20 +42,25 @@ function validate() {
     errors.value.fullname = 'Enter your full name'
   }
 
-  if (!form.email.trim() && !form.phone_number.trim()) {
+  if (!form.email.trim()) {
     errors.value.email = 'Enter your email address or phone number'
-    errors.value.phone_number = 'Enter your phone number or email address'
+  
   }
+
+  //  if (!form.phone_number.trim()) {
+   
+  //   errors.value.phone_number = 'Enter your phone number or email address'
+  // }
 
   if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
     errors.value.email = 'Enter a valid email address'
   }
 
-  if (!form.phone_number.trim() && form.email.trim()) {
-    // Phone is optional when email is provided.
-  } else if (!form.phone_number.trim()) {
-    errors.value.phone_number = 'Enter your phone number'
-  }
+  // if (!form.phone_number.trim() && form.email.trim()) {
+  //   // Phone is optional when email is provided.
+  // } else if (!form.phone_number.trim()) {
+  //   errors.value.phone_number = 'Enter your phone number'
+  // }
 
   if (!form.password) {
     errors.value.password = 'Enter your password'
@@ -85,7 +90,8 @@ async function handleSubmit() {
       password_confirmation: form.password_confirmation,
     })
 
-    const email = response?.data?.user?.email || form.phone_number
+    const email = response?.data?.user?.email || form.email || form.phone_number
+    authStore.beginOtpFlow(email, 'register', response?.message)
     await router.push({
       path: '/verify-otp',
       query: { email, purpose: 'register' },
@@ -160,7 +166,7 @@ async function handleGoogleLogin() {
             :error="errors.email"
           />
 
-          <AuthInput
+          <!-- <AuthInput
             id="phone_number"
             v-model="form.phone_number"
             label="Phone number"
@@ -168,7 +174,7 @@ async function handleGoogleLogin() {
             placeholder="(555) 123-4567"
             autocomplete="tel"
             :error="errors.phone_number"
-          />
+          /> -->
 
           <AuthInput
             id="password"

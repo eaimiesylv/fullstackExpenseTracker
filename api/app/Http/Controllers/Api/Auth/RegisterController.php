@@ -85,11 +85,8 @@ class RegisterController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Registration successful.',
-            'data' => [
-                'user' => new UserResource($user),
-                
-            ],
+            'message' => 'Verify your email address using the verification code sent to your email.',
+            
         ], 201);
     }
 }

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import type { AxiosError } from 'axios'
 import { useApi } from '~/composables/useApi'
-import { useCookie, navigateTo } from '#imports'
+import { navigateTo, useCookie } from '#imports'
 
 export interface AuthUser {
   id: string
@@ -62,15 +62,47 @@ const COOKIE_OPTIONS = {
 } as const
 
 function updateAuthToken(token: string | null) {
-  const authToken = useCookie<string>('auth_token', COOKIE_OPTIONS)
-  authToken.value = token || null
+  if (import.meta.client) {
+    const cookie = useCookie<string | null>('auth_token', COOKIE_OPTIONS)
+    if (token) {
+      window.localStorage.setItem('auth_token', token)
+      cookie.value = token
+    } else {
+      window.localStorage.removeItem('auth_token')
+      cookie.value = null
+    }
+  }
+}
+
+function readStoredToken() {
+  if (import.meta.client) {
+    const cookieToken = useCookie<string | null>('auth_token', COOKIE_OPTIONS).value
+    if (cookieToken) {
+      return cookieToken
+    }
+
+    return window.localStorage.getItem('auth_token') || ''
+  }
+
+  return ''
+}
+
+function extractAuthResponse(response: any) {
+  const payload = response?.data ?? response
+  const data = payload?.data ?? payload
+
+  return {
+    token: data?.token ?? payload?.token ?? null,
+    user: data?.user ?? payload?.user ?? null,
+  }
 }
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null as AuthUser | null,
-    token: useCookie<string>('auth_token', COOKIE_OPTIONS).value ?? '',
+    token: readStoredToken(),
     passwordResetOtp: null as string | null,
+    otpFlow: null as { email: string; purpose: 'register' | 'reset'; message?: string } | null,
   }),
 
   getters: {
@@ -91,7 +123,16 @@ export const useAuthStore = defineStore('auth', {
       this.user = null
       this.token = ''
       this.passwordResetOtp = null
+      this.otpFlow = null
       updateAuthToken(null)
+    },
+
+    beginOtpFlow(email: string, purpose: 'register' | 'reset', message?: string) {
+      this.otpFlow = { email, purpose, message }
+    },
+
+    clearOtpFlow() {
+      this.otpFlow = null
     },
 
     async register(payload: {
@@ -104,9 +145,10 @@ export const useAuthStore = defineStore('auth', {
       try {
         const api = useApi()
         const response = await api.post('/auth/register', payload)
+        const authData = extractAuthResponse(response)
 
-        if (response?.data?.user) {
-          this.user = response.data.user
+        if (authData.user) {
+          this.user = authData.user as AuthUser
         }
 
         return response
@@ -119,9 +161,11 @@ export const useAuthStore = defineStore('auth', {
       try {
         const api = useApi()
         const response = await api.post('/auth/login', payload)
+        const authData = extractAuthResponse(response)
 
-        this.token = response?.data?.token
-        this.user = response?.data?.user
+        this.token = authData.token || ''
+        this.user = (authData.user as AuthUser | null) || null
+        this.otpFlow = null
         updateAuthToken(this.token)
 
         return response
@@ -133,7 +177,17 @@ export const useAuthStore = defineStore('auth', {
     async verifyEmail(payload: { email: string; otp: string }) {
       try {
         const api = useApi()
-        return await api.post('/auth/verify-email', payload)
+        const response = await api.post('/auth/verify-email', payload)
+        const authData = extractAuthResponse(response)
+
+        if (authData.token) {
+          this.token = authData.token
+          this.user = authData.user as AuthUser | null
+          updateAuthToken(this.token)
+        }
+
+        this.otpFlow = null
+        return response
       } catch (error) {
         throw normalizeApiError(error)
       }
@@ -147,8 +201,6 @@ export const useAuthStore = defineStore('auth', {
         }
       }
 
-      // The backend currently verifies password-reset OTPs as part of reset-password,
-      // so this action preserves the client flow until the user submits a new password.
       this.passwordResetOtp = payload.otp
       return Promise.resolve({ message: 'OK' })
     },
@@ -174,7 +226,9 @@ export const useAuthStore = defineStore('auth', {
     async forgotPassword(payload: { email: string }) {
       try {
         const api = useApi()
-        return await api.post('/auth/forgot-password', payload)
+        const response = await api.post('/auth/forgot-password', payload)
+        this.beginOtpFlow(payload.email, 'reset', response?.message)
+        return response
       } catch (error) {
         throw normalizeApiError(error)
       }
@@ -205,16 +259,31 @@ export const useAuthStore = defineStore('auth', {
         })
 
         this.passwordResetOtp = null
+        this.otpFlow = null
         return response
       } catch (error) {
         throw normalizeApiError(error)
       }
     },
 
+    async logoutApi() {
+      try {
+        const api = useApi()
+        await api.post('/auth/logout')
+      } catch (error) {
+        // Ignore backend logout errors and still clear the client session.
+      } finally {
+        this.clearAuth()
+        if (import.meta.client) {
+          navigateTo('/login')
+        }
+      }
+    },
+
     logout(redirect = true) {
       this.clearAuth()
 
-      if (redirect && process.client) {
+      if (redirect && import.meta.client) {
         navigateTo('/login')
       }
     },

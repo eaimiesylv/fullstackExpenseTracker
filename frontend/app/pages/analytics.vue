@@ -1,5 +1,6 @@
 <script setup lang="ts">
 definePageMeta({
+  middleware: ['auth'],
   title: 'Expenses',
   subtitle: 'Track every expense across your budgets.',
 })

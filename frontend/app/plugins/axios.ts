@@ -62,7 +62,7 @@ export default defineNuxtPlugin(() => {
         const authStore = useAuthStore()
         authStore.logout(false)
 
-        if (process.client) {
+        if (import.meta.client) {
           navigateTo('/login')
         }
       }

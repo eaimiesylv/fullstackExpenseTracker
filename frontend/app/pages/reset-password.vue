@@ -21,6 +21,16 @@ const router = useRouter()
 const authStore = useAuthStore()
 const email = computed(() => (route.query.email as string) || '')
 
+function validateResetAccess() {
+  if (!email.value || !authStore.passwordResetOtp) {
+    router.replace('/forgot-password')
+  }
+}
+
+onMounted(() => {
+  validateResetAccess()
+})
+
 const password = ref('')
 const confirmPassword = ref('')
 const errors = ref<{ password?: string; confirmPassword?: string }>({})

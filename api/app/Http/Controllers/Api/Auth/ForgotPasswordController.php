@@ -22,7 +22,7 @@ class ForgotPasswordController extends Controller
 
         $user = User::query()->where('email', $validated['email'])->first();
 
-        if (! $user) {
+        if (!$user) {
             return response()->json([
                 'success' => true,
                 'message' => 'If an account exists, a password reset code has been sent.',

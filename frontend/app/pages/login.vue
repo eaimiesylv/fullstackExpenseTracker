@@ -64,6 +64,12 @@ async function handleSubmit() {
       }
     }
 
+    if (error?.status === 403) {
+      authStore.beginOtpFlow(email.value, 'register', error?.message)
+      await router.push({ path: '/verify-otp', query: { email: email.value, purpose: 'register' } })
+      return
+    }
+
     if (!Object.keys(errors.value).length) {
       errors.value.email = error?.message || 'Unable to log in. Please try again.'
     }

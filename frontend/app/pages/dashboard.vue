@@ -1,5 +1,6 @@
 <script setup lang="ts">
 definePageMeta({
+  middleware: ['auth'],
   title: 'Dashboard',
   subtitle: "Here's what's happening with your money.",
 })
