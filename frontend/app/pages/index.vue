@@ -1,4 +1,7 @@
 <script setup>
+definePageMeta({
+  layout: false,
+})
 useHead({
   title: 'LedgerFlow — Manage Your Money Together',
   meta: [

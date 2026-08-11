@@ -1,3 +1,4 @@
+
 <script setup lang="ts">
 import AuthInput from '~/components/auth/AuthInput.vue'
 import AuthButton from '~/components/auth/AuthButton.vue'
@@ -5,11 +6,16 @@ import AuthDivider from '~/components/auth/AuthDivider.vue'
 import GoogleButton from '~/components/auth/GoogleButton.vue'
 import BrandPanel from '~/components/auth/BrandPanel.vue'
 import { BRAND_HREF, BRAND_NAME } from '~/config/brand'
-
+import { useAuthStore } from '~/stores/auth'
+definePageMeta({
+  layout: false,
+})
 useHead({
   title: `Log in — ${BRAND_NAME}`,
 })
 
+const router = useRouter()
+const authStore = useAuthStore()
 const brandHref = BRAND_HREF
 const brandName = BRAND_NAME
 
@@ -40,9 +46,27 @@ async function handleSubmit() {
 
   loading.value = true
   try {
-    // TODO: replace with your real auth call, e.g.
-    // await $fetch('/api/auth/login', { method: 'POST', body: { email: email.value, password: password.value } })
-    await new Promise((resolve) => setTimeout(resolve, 900))
+    await authStore.login({
+      email: email.value,
+      password: password.value,
+    })
+
+    await router.push('/dashboard')
+  } catch (error: any) {
+    errors.value = {}
+
+    if (error?.errors) {
+      if (error.errors.email) {
+        errors.value.email = error.errors.email[0]
+      }
+      if (error.errors.password) {
+        errors.value.password = error.errors.password[0]
+      }
+    }
+
+    if (!Object.keys(errors.value).length) {
+      errors.value.email = error?.message || 'Unable to log in. Please try again.'
+    }
   } finally {
     loading.value = false
   }

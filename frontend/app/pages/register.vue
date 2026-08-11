@@ -5,22 +5,29 @@ import AuthDivider from '~/components/auth/AuthDivider.vue'
 import GoogleButton from '~/components/auth/GoogleButton.vue'
 import BrandPanel from '~/components/auth/BrandPanel.vue'
 import { BRAND_HREF, BRAND_NAME } from '~/config/brand'
-
+import { useAuthStore } from '~/stores/auth'
+definePageMeta({
+  layout: false,
+})
 useHead({
   title: `Sign up — ${BRAND_NAME}`,
 })
 
+const router = useRouter()
+const authStore = useAuthStore()
 const brandHref = BRAND_HREF
 const brandName = BRAND_NAME
 
 const form = reactive({
   fullname: '',
+  email: '',
   phone_number: '',
   password: '',
   password_confirmation: '',
 })
 const errors = ref<{
   fullname?: string
+  email?: string
   phone_number?: string
   password?: string
   password_confirmation?: string
@@ -35,7 +42,18 @@ function validate() {
     errors.value.fullname = 'Enter your full name'
   }
 
-  if (!form.phone_number.trim()) {
+  if (!form.email.trim() && !form.phone_number.trim()) {
+    errors.value.email = 'Enter your email address or phone number'
+    errors.value.phone_number = 'Enter your phone number or email address'
+  }
+
+  if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+    errors.value.email = 'Enter a valid email address'
+  }
+
+  if (!form.phone_number.trim() && form.email.trim()) {
+    // Phone is optional when email is provided.
+  } else if (!form.phone_number.trim()) {
     errors.value.phone_number = 'Enter your phone number'
   }
 
@@ -59,17 +77,33 @@ async function handleSubmit() {
 
   loading.value = true
   try {
-    // TODO: replace with your real auth call, e.g.
-    // await $fetch('/api/auth/register', {
-    //   method: 'POST',
-    //   body: {
-    //     fullname: form.fullname,
-    //     phone_number: form.phone_number,
-    //     password: form.password,
-    //     password_confirmation: form.password_confirmation,
-    //   },
-    // })
-    await new Promise((resolve) => setTimeout(resolve, 900))
+    const response = await authStore.register({
+      fullname: form.fullname,
+      email: form.email || undefined,
+      phone_number: form.phone_number,
+      password: form.password,
+      password_confirmation: form.password_confirmation,
+    })
+
+    const email = response?.data?.user?.email || form.phone_number
+    await router.push({
+      path: '/verify-otp',
+      query: { email, purpose: 'register' },
+    })
+  } catch (error: any) {
+    errors.value = {}
+
+    if (error?.errors) {
+      for (const key of Object.keys(error.errors)) {
+        if (Object.prototype.hasOwnProperty.call(errors.value, key)) {
+          errors.value[key as keyof typeof errors.value] = error.errors[key]?.[0] ?? ''
+        }
+      }
+    }
+
+    if (!Object.keys(errors.value).length) {
+      errors.value.fullname = error?.message || 'Unable to register. Please try again.'
+    }
   } finally {
     loading.value = false
   }
@@ -114,6 +148,16 @@ async function handleGoogleLogin() {
             placeholder="Jane Doe"
             autocomplete="name"
             :error="errors.fullname"
+          />
+
+          <AuthInput
+            id="email"
+            v-model="form.email"
+            label="Email address"
+            type="email"
+            placeholder="you@example.com"
+            autocomplete="email"
+            :error="errors.email"
           />
 
           <AuthInput
