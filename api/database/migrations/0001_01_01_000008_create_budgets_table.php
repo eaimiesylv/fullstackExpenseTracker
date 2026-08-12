@@ -13,7 +13,7 @@ return new class extends Migration
             $table->ulid('id')->primary();
             $table->foreignUlid('owner_id')->nullable()->constrained('users')->nullOnDelete();
             $table->foreignUlid('group_id')->nullable()->constrained('groups')->cascadeOnDelete();
-            $table->foreignUlid('budget_category_id')->nullable()->constrained('budget_categories')->nullOnDelete();
+            $table->foreignUlid('category_id')->nullable()->constrained('categories')->nullOnDelete();
             $table->string('budget_name');
             $table->text('description')->nullable();
             $table->string('scope')->default('personal')->index();

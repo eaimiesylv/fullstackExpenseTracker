@@ -4,13 +4,19 @@ interface Props {
   subtitle?: string
   userName?: string
   hasNotifications?: boolean
+  actionLabel?: string
 }
 
 withDefaults(defineProps<Props>(), {
   subtitle: '',
   userName: 'User',
   hasNotifications: false,
+  actionLabel: '',
 })
+
+const emit = defineEmits<{
+  'action-click': []
+}>()
 
 function initials(name: string) {
   return name
@@ -30,6 +36,18 @@ function initials(name: string) {
     </div>
 
     <div class="flex items-center gap-5">
+      <button
+        v-if="actionLabel"
+        type="button"
+        class="flex items-center gap-2 rounded-full bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700"
+        @click="emit('action-click')"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+        {{ actionLabel }}
+      </button>
+
       <button type="button" class="relative text-slate-400 hover:text-slate-600" aria-label="Notifications">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" />

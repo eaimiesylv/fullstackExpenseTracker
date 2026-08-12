@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\Auth\ResetPasswordController;
 use App\Http\Controllers\Api\Auth\VerifyEmailController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\GroupController;
 
 Route::post('/auth/register', RegisterController::class);
 Route::post('/auth/login', LoginController::class);
@@ -23,3 +24,11 @@ Route::post('/auth/logout', LogoutController::class)->middleware(['auth:sanctum'
 Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
+
+Route::group(['prefix' => 'groups', 'middleware' => ['auth:sanctum']], function () {
+    Route::post('/', [GroupController::class, 'store']);
+    Route::get('/', [GroupController::class, 'index']);
+    Route::get('/{id}', [GroupController::class, 'show']);
+    Route::put('/{id}', [GroupController::class, 'update']);
+    Route::delete('/{id}', [GroupController::class, 'destroy']);
+});

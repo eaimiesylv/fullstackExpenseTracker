@@ -11,11 +11,14 @@ return new class extends Migration
         Schema::create('groups', function (Blueprint $table) {
             $table->ulid('id')->primary();
             $table->foreignUlid('owner_id')->constrained('users')->restrictOnDelete();
-            $table->string('group_name');
+            $table->string('group_name', 255);
             $table->text('description')->nullable();
-            $table->string('image', 255)->nullable();
+           // $table->string('image', 255)->nullable();
             $table->string('status')->default('active')->index();
             $table->timestamps();
+
+            $table->index(['owner_id', 'status']);
+            $table->unique(['owner_id', 'group_name']);
         });
     }
 
