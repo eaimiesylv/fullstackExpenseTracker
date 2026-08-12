@@ -15,7 +15,7 @@ return new class extends Migration
             $table->foreignUlid('group_id')->nullable()->constrained('groups')->nullOnDelete();
             $table->foreignUlid('group_member_id')->nullable()->constrained('group_members')->nullOnDelete();
             $table->foreignUlid('budget_id')->nullable()->constrained('budgets')->nullOnDelete();
-            $table->foreignUlid('expense_category_id')->nullable()->constrained('expense_categories')->nullOnDelete();
+            $table->foreignUlid('category_id')->nullable()->constrained('categories')->nullOnDelete();
             $table->string('title');
             $table->text('description')->nullable();
             $table->decimal('amount', 15, 2);
@@ -26,7 +26,7 @@ return new class extends Migration
             $table->foreignUlid('approved_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('approved_at')->nullable();
             $table->timestamps();
-            $table->index(['budget_id', 'user_id', 'group_member_id', 'expense_category_id'], 'expenses_budget_user_group_exp_cat_idx');
+            $table->index(['budget_id', 'user_id', 'group_member_id', 'category_id'], 'expenses_budget_user_group_exp_cat_idx');
         });
 
         DB::statement('ALTER TABLE expenses ADD CONSTRAINT expenses_amount_positive CHECK (amount >= 0)');

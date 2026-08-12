@@ -13,7 +13,7 @@ return new class extends Migration
             $table->ulid('id')->primary();
             $table->foreignUlid('owner_id')->nullable()->constrained('users')->nullOnDelete();
             $table->foreignUlid('group_id')->nullable()->constrained('groups')->nullOnDelete();
-            $table->foreignUlid('bill_category_id')->nullable()->constrained('bill_categories')->nullOnDelete();
+            $table->foreignUlid('category_id')->nullable()->constrained('categories')->nullOnDelete();
             $table->string('title');
             $table->text('description')->nullable();
             $table->decimal('amount', 15, 2);
@@ -22,7 +22,7 @@ return new class extends Migration
             $table->date('due_date')->nullable()->index();
             $table->string('status')->default('pending')->index();
             $table->timestamps();
-            $table->index(['owner_id', 'group_id', 'bill_category_id']);
+            $table->index(['owner_id', 'group_id', 'category_id']);
         });
 
         DB::statement('ALTER TABLE bills ADD CONSTRAINT bills_amount_positive CHECK (amount >= 0)');

@@ -2,8 +2,8 @@
 
 namespace App\Http\Requests\Auth;
 
+use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Support\Facades\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 
@@ -19,11 +19,23 @@ class RegisterRequest extends FormRequest
         return [
             'fullname' => ['required', 'string', 'max:255'],
             'email' => [
-                'nullable',
+                'required',
                 'email',
                 'max:255',
-                Rule::unique('users', 'email'),
-                'required_without:phone_number',
+                function ($attribute, $value, $fail) {
+                    $existingUser = User::query()->where('email', $value)->first();
+
+                    if (! $existingUser) {
+                        return;
+                    }
+
+                    if (! is_null($existingUser->email_verified_at)) {
+                        $fail('This email is already taken.');
+                        return;
+                    }
+
+                    $fail('An account with this email already exists, but it has not been verified yet. Please log in to continue the verification process.');
+                },
             ],
             'phone_number' => [
                 'nullable',
@@ -37,13 +49,9 @@ class RegisterRequest extends FormRequest
                 'required',
                 'string',
                 'confirmed',
-                Password::min(8)
-                    ->mixedCase()
-                    ->letters()
-                    ->numbers()
-                    ->symbols(),
+                Password::min(3),
             ],
-            'invite_token' => ['nullable', 'string'],
+            
         ];
     }
 
@@ -64,7 +72,7 @@ class RegisterRequest extends FormRequest
     {
         return [
             'phone_number.regex' => 'The phone number must contain only digits and an optional leading +.',
-            'email.required_without' => 'Email or phone number is required.',
+            'email.required' => 'Email is required.',
             'phone_number.required_without' => 'Phone number or email is required.',
         ];
     }

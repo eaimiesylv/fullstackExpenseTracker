@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\Auth\OtpService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use App\Http\Resources\UserResource;
 
 class VerifyEmailController extends Controller
 {
@@ -47,10 +48,16 @@ class VerifyEmailController extends Controller
             }
 
             $user->forceFill(['email_verified_at' => now()])->save();
+             $token = $user->createToken('auth_token')->plainTextToken;
 
             return response()->json([
                 'success' => true,
                 'message' => 'Email verified successfully.',
+                'data' => [
+                'user' => new UserResource($user),
+                'token' => $token,
+                'token_type' => 'Bearer',
+            ],
             ]);
         });
     }
