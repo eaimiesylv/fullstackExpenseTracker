@@ -30,11 +30,6 @@ function initials(name: string) {
 
 <template>
   <header class="flex items-center justify-between border-b border-slate-200 bg-white px-8 py-5">
-    <div>
-      <h1 class="font-display text-2xl font-bold text-slate-900">{{ title }}</h1>
-      <p v-if="subtitle" class="mt-1 text-sm text-slate-500">{{ subtitle }}</p>
-    </div>
-
     <div class="flex items-center gap-5">
       <button
         v-if="actionLabel"
@@ -48,6 +43,13 @@ function initials(name: string) {
         {{ actionLabel }}
       </button>
 
+      <div>
+        <h1 class="font-display text-2xl font-bold text-slate-900">{{ title }}</h1>
+        <p v-if="subtitle" class="mt-1 text-sm text-slate-500">{{ subtitle }}</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-5">
       <button type="button" class="relative text-slate-400 hover:text-slate-600" aria-label="Notifications">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" />

@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue'
 import FormModal, { type FormField } from '~/components/ui/FormModal.vue'
+import { useApi } from '~/composables/useApi'
 
 interface HeaderAction {
   label: string
@@ -15,8 +17,12 @@ const headerAction = computed(() => route.meta.headerAction as HeaderAction | un
 
 const showModal = ref(false)
 const creating = ref(false)
+const errorMessage = ref<string | null>(null)
+const fieldErrors = ref<Record<string, string> | null>(null)
 
 function openModal() {
+  errorMessage.value = null
+  fieldErrors.value = null
   showModal.value = true
 }
 
@@ -24,11 +30,27 @@ async function handleCreate(values: Record<string, string>) {
   if (!headerAction.value) return
 
   creating.value = true
+  errorMessage.value = null
+  fieldErrors.value = null
+
   try {
-    // TODO: replace with your real create call, e.g.
-    // await $fetch(headerAction.value.endpoint, { method: 'POST', body: values })
-    await new Promise((resolve) => setTimeout(resolve, 800))
+    const api = useApi()
+    const endpoint = headerAction.value.endpoint.replace(/^\/?api\/?/, '').replace(/^\//, '')
+    await api.post(endpoint, values)
     showModal.value = false
+  } catch (error: any) {
+    const apiError = error || {}
+    errorMessage.value = apiError.message || 'Something went wrong. Please try again.'
+
+    const errors = apiError.errors
+    if (errors && typeof errors === 'object') {
+      fieldErrors.value = Object.fromEntries(
+        Object.entries(errors).map(([key, value]) => [
+          key,
+          Array.isArray(value) ? String(value[0]) : String(value),
+        ])
+      )
+    }
   } finally {
     creating.value = false
   }
@@ -60,7 +82,9 @@ async function handleCreate(values: Record<string, string>) {
       :title="headerAction.label"
       :fields="headerAction.fields"
       :loading="creating"
+      :serverMessage="errorMessage"
+      :serverErrors="fieldErrors"
       @submit="handleCreate"
     />
   </div>
-</template>s
+</template>
