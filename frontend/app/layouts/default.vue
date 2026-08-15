@@ -5,8 +5,8 @@ import { useApi } from '~/composables/useApi'
 
 interface HeaderAction {
   label: string
-  endpoint: string
-  fields: FormField[]
+  endpoint?: string
+  fields?: FormField[]
 }
 
 const route = useRoute()
@@ -14,6 +14,10 @@ const route = useRoute()
 const title = computed(() => (route.meta.title as string) || 'Dashboard')
 const subtitle = computed(() => (route.meta.subtitle as string) || '')
 const headerAction = computed(() => route.meta.headerAction as HeaderAction | undefined)
+
+const isGenericAction = computed(() => {
+  return !!(headerAction.value?.endpoint && headerAction.value?.fields && headerAction.value.fields.length > 0)
+})
 
 const showModal = ref(false)
 const creating = ref(false)
@@ -27,7 +31,7 @@ function openModal() {
 }
 
 async function handleCreate(values: Record<string, string>) {
-  if (!headerAction.value) return
+  if (!headerAction.value?.endpoint) return
 
   creating.value = true
   errorMessage.value = null
@@ -67,7 +71,7 @@ async function handleCreate(values: Record<string, string>) {
         :subtitle="subtitle"
         user-name="Okom Emmanuel"
         :has-notifications="true"
-        :action-label="headerAction?.label ?? ''"
+        :action-label="isGenericAction ? (headerAction?.label ?? '') : ''"
         @action-click="openModal"
       />
 
@@ -77,7 +81,7 @@ async function handleCreate(values: Record<string, string>) {
     </div>
 
     <FormModal
-      v-if="headerAction"
+      v-if="isGenericAction && headerAction && headerAction.fields"
       v-model="showModal"
       :title="headerAction.label"
       :fields="headerAction.fields"

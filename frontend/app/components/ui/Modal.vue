@@ -1,9 +1,12 @@
 <script setup lang="ts">
 interface Props {
   title: string
+  subtitle?: string
 }
 
-defineProps<Props>()
+withDefaults(defineProps<Props>(), {
+  subtitle: '',
+})
 
 const isOpen = defineModel<boolean>({ default: false })
 
@@ -24,15 +27,18 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 <template>
   <Teleport to="body">
     <Transition name="modal-fade">
-      <div v-if="isOpen" class="fixed inset-0 z-50 flex items-center justify-center px-4">
-        <div class="absolute inset-0 bg-slate-900/40" @click="close" />
+      <div v-if="isOpen" class="fixed inset-0 z-50 flex items-center justify-center px-4 py-8">
+        <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-[2px]" @click="close" />
 
-        <div class="receipt-card relative w-full max-w-md bg-white p-6">
-          <div class="flex items-center justify-between">
-            <h2 class="font-display text-lg font-semibold text-slate-900">{{ title }}</h2>
+        <div class="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-slate-100 bg-white p-7 shadow-2xl shadow-slate-900/10">
+          <div class="flex items-start justify-between">
+            <div>
+              <h2 class="font-display text-xl font-semibold text-slate-900">{{ title }}</h2>
+              <p v-if="subtitle" class="mt-1 text-sm text-slate-500">{{ subtitle }}</p>
+            </div>
             <button
               type="button"
-              class="text-slate-400 hover:text-slate-600"
+              class="rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
               aria-label="Close"
               @click="close"
             >
@@ -42,7 +48,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
             </button>
           </div>
 
-          <div class="mt-5">
+          <div class="mt-6">
             <slot />
           </div>
         </div>

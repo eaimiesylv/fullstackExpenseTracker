@@ -14,11 +14,11 @@ const isLoggingOut = ref(false)
 const navItems: NavItem[] = [
   { label: 'Dashboard', to: '/dashboard', icon: 'home' },
   { label: 'Analytics', to: '/analytics', icon: 'chart' },
+  { label: 'Groups', to: '/groups', icon: 'users' },
+  { label: 'Needs', to: '/needs', icon: 'piggy' },
   { label: 'Budgets', to: '/budgets', icon: 'wallet' },
   { label: 'Expenses', to: '/expenses', icon: 'dollar' },
-  { label: 'Bills & Splits', to: '/bills', icon: 'receipt' },
-  { label: 'Groups', to: '/groups', icon: 'users' },
-  { label: 'Record savings', to: '/savings', icon: 'piggy' },
+  { label: 'Shared Bills', to: '/bills', icon: 'receipt' },
   { label: 'Notifications', to: '/notifications', icon: 'bell' },
   { label: 'Settings', to: '/settings', icon: 'gear' },
   {

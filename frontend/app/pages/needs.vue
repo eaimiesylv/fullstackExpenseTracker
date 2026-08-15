@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import BillFormModal, { type BillPayload } from '~/components/bills/BillFormModal.vue'
+import NeedFormModal, { type BudgetPayload } from '~/components/ui/NeedFormModal.vue'
 import { useApi } from '~/composables/useApi'
 
 definePageMeta({
   middleware: ['auth'],
-  title: 'Bills & Splits',
-  subtitle: 'Track shared bills and who still owes.',
+  title: 'Needs',
+  subtitle: 'Set limits and track what you have left.',
   headerAction: {
-    label: 'Create Bill',
+    label: 'Create Need',
   },
 })
 
@@ -22,14 +22,14 @@ function openModal() {
   showModal.value = true
 }
 
-async function handleCreate(payload: BillPayload) {
+async function handleCreate(payload: BudgetPayload) {
   creating.value = true
   errorMessage.value = null
   fieldErrors.value = null
 
   try {
     const api = useApi()
-    await api.post('bills', payload)
+    await api.post('budgets', payload)
     showModal.value = false
   } catch (error: any) {
     const apiError = error || {}
@@ -61,15 +61,15 @@ async function handleCreate(payload: BillPayload) {
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
           <path d="M12 5v14M5 12h14" />
         </svg>
-        Create Bill
+        Create Need
       </button>
     </div>
 
     <div class="flex h-full min-h-[400px] items-center justify-center rounded-2xl border border-dashed border-slate-200">
-      <p class="text-slate-400">Bills & splits content goes here.</p>
+      <p class="text-slate-400">Needs content goes here.</p>
     </div>
 
-    <BillFormModal
+    <NeedFormModal
       v-model="showModal"
       :loading="creating"
       :server-message="errorMessage"
