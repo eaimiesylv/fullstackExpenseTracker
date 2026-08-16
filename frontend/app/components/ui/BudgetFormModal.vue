@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import Modal from '~/components/ui/Modal.vue'
 import CategoryFormModal, { type CategoryOption } from '~/components/ui/CategoryFormModal.vue'
+import BudgetItemsModal, { type BudgetItem } from '~/components/ui/BudgetItemsModal.vue'
 import { useApi } from '~/composables/useApi'
 
 interface Props {
@@ -26,6 +27,7 @@ export interface BudgetPayload {
   endDate: string
   groupId?: string
   allowMemberContribution?: boolean
+  items?: BudgetItem[]
 }
 
 const emit = defineEmits<{
@@ -43,11 +45,17 @@ const allowMemberContribution = ref(false)
 
 const showCategoryModal = ref(false)
 
+// Sub-items: budgets broken into line items (e.g. Party -> Transport, Feeding, Drinks)
+const hasSubItems = ref(false)
+const budgetItems = ref<BudgetItem[]>([])
+const showItemsModal = ref(false)
+
 const errors = ref<{
   name?: string
   amount?: string
   categoryId?: string
   groupId?: string
+  items?: string
 }>({})
 
 const localServerMessage = ref<string | null>(props.serverMessage)
@@ -115,6 +123,28 @@ function handleCategoryCreated(category: CategoryOption) {
   clearServerError('categoryId')
 }
 
+// Sum of all sub-items — this is the single source of truth for `amount`
+// whenever hasSubItems is on, so the total field can never drift out of sync.
+const itemsTotal = computed(() =>
+  budgetItems.value.reduce((sum, i) => sum + (Number(i.amount) || 0), 0)
+)
+
+function handleItemsSaved(items: BudgetItem[]) {
+  budgetItems.value = items
+  amount.value = itemsTotal.value.toFixed(2)
+  errors.value.items = undefined
+  clearServerError('amount')
+}
+
+watch(hasSubItems, (on) => {
+  if (!on) {
+    // switching back to a plain total: clear items, leave amount editable again
+    budgetItems.value = []
+  } else if (budgetItems.value.length === 0) {
+    showItemsModal.value = true
+  }
+})
+
 function resetForm() {
   name.value = ''
   type.value = 'personal'
@@ -124,6 +154,8 @@ function resetForm() {
   endDate.value = ''
   groupId.value = ''
   allowMemberContribution.value = false
+  hasSubItems.value = false
+  budgetItems.value = []
   errors.value = {}
   localServerMessage.value = null
   localServerErrors.value = null
@@ -153,7 +185,13 @@ function clearServerError(field: string) {
 function validate() {
   errors.value = {}
   if (!name.value.trim()) errors.value.name = 'Budget name is required'
-  if (!amount.value) errors.value.amount = 'Budget amount is required'
+
+  if (hasSubItems.value && budgetItems.value.length === 0) {
+    errors.value.items = 'Add at least one budget item'
+  } else if (!amount.value) {
+    errors.value.amount = 'Budget amount is required'
+  }
+
   if (!categoryId.value) errors.value.categoryId = 'Select a category'
   if (type.value === 'group' && !groupId.value) errors.value.groupId = 'Select a group'
   return Object.keys(errors.value).length === 0
@@ -170,6 +208,10 @@ function handleSubmit() {
     categoryId: categoryId.value,
     startDate: startDate.value,
     endDate: endDate.value,
+  }
+
+  if (hasSubItems.value) {
+    payload.items = budgetItems.value
   }
 
   if (type.value === 'group') {
@@ -233,9 +275,53 @@ function handleSubmit() {
         </div>
       </div>
 
+      <!-- Sub-items toggle -->
+      <div>
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <p class="text-sm font-medium text-slate-700">Break this budget into items?</p>
+            <p class="mt-0.5 text-xs text-slate-500">
+              e.g. a "Party" budget split into Transport, Feeding, Drinks.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            :aria-checked="hasSubItems"
+            class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
+            :class="hasSubItems ? 'bg-emerald-500' : 'bg-slate-300'"
+            @click="hasSubItems = !hasSubItems"
+          >
+            <span
+              class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+              :class="hasSubItems ? 'translate-x-6' : 'translate-x-1'"
+            />
+          </button>
+        </div>
+
+        <Transition name="expand">
+          <div v-if="hasSubItems" class="mt-3">
+            <button
+              type="button"
+              class="w-full rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-left text-sm text-slate-600 transition hover:border-indigo-300 hover:bg-indigo-50/50"
+              @click="showItemsModal = true"
+            >
+              <span v-if="budgetItems.length" class="font-medium text-slate-900">
+                {{ budgetItems.length }} item{{ budgetItems.length > 1 ? 's' : '' }} — ₦{{ itemsTotal.toLocaleString() }} total
+              </span>
+              <span v-else>Add budget items →</span>
+            </button>
+            <p v-if="errors.items" class="mt-1.5 text-xs text-rose-600">{{ errors.items }}</p>
+          </div>
+        </Transition>
+      </div>
+
       <!-- Budget amount -->
       <div>
-        <label for="budget-amount" class="mb-1.5 block text-sm font-medium text-slate-700">Budget amount (₦)</label>
+        <label for="budget-amount" class="mb-1.5 block text-sm font-medium text-slate-700">
+          Budget amount (₦)
+          <span v-if="hasSubItems" class="font-normal text-slate-400">— auto-calculated from items</span>
+        </label>
         <div class="relative">
           <span class="pointer-events-none absolute inset-y-0 left-4 flex items-center text-sm text-slate-400">₦</span>
           <input
@@ -244,10 +330,14 @@ function handleSubmit() {
             type="number"
             step="0.01"
             placeholder="0.00"
+            :readonly="hasSubItems"
             class="w-full rounded-xl border py-3 pl-9 pr-4 text-sm text-slate-900 placeholder:text-slate-400 transition focus:outline-none focus:ring-2"
-            :class="errors.amount || localServerErrors?.amount
-              ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-200'
-              : 'border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/30'"
+            :class="[
+              hasSubItems ? 'bg-slate-50 text-slate-500' : '',
+              errors.amount || localServerErrors?.amount
+                ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-200'
+                : 'border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/30',
+            ]"
             @input="clearServerError('amount')"
           />
         </div>
@@ -374,6 +464,8 @@ function handleSubmit() {
   </Modal>
 
   <CategoryFormModal v-model="showCategoryModal" type="budget" @created="handleCategoryCreated" />
+
+  <BudgetItemsModal v-model="showItemsModal" :existing-items="budgetItems" @submit="handleItemsSaved" />
 </template>
 
 <style scoped>

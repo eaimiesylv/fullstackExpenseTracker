@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import Modal from '~/components/ui/Modal.vue'
 import CategoryFormModal, { type CategoryOption } from '~/components/ui/CategoryFormModal.vue'
+import ItemFormModal, { type ItemOption } from '~/components/ui/ItemFormModal.vue'
 import { useApi } from '~/composables/useApi'
 
 interface Props {
@@ -43,6 +44,8 @@ const categoryId = ref('')
 const description = ref('')
 const showDescription = ref(false)
 
+const showItemModal = ref(false)
+
 // Step 6: is this expense tied to an existing budget, or standalone?
 const budgetLink = ref<'linked' | 'standalone'>('standalone')
 
@@ -72,12 +75,16 @@ const errors = ref<{
 const localServerMessage = ref<string | null>(props.serverMessage)
 const localServerErrors = ref<Record<string, string> | null>(props.serverErrors)
 
-// TODO: replace these three with your real endpoints, e.g.
-// GET /expense-categories, GET /budgets, GET /groups
+// TODO: replace these with your real endpoints, e.g.
+// GET /expense-items, GET /expense-categories, GET /budgets, GET /groups
 interface Option {
   id: string
   name: string
 }
+
+const items = ref<Option[]>([])
+const loadingItems = ref(false)
+let itemsLoaded = false
 
 const categories = ref<Option[]>([])
 const loadingCategories = ref(false)
@@ -91,6 +98,12 @@ function handleCategoryCreated(category: CategoryOption) {
   clearServerError('categoryId')
 }
 
+function handleItemCreated(item: ItemOption) {
+  items.value.push(item)
+  name.value = item.name
+  clearServerError('name')
+}
+
 const budgets = ref<Option[]>([])
 const loadingBudgets = ref(false)
 let budgetsLoaded = false
@@ -98,6 +111,23 @@ let budgetsLoaded = false
 const groups = ref<Option[]>([])
 const loadingGroups = ref(false)
 let groupsLoaded = false
+
+async function loadItems() {
+  if (itemsLoaded) return
+  loadingItems.value = true
+  try {
+    const api = useApi()
+    // items.value = await api.get('expense-items')
+    items.value = [
+      { id: 'uber-ride', name: 'Uber ride' },
+      { id: 'groceries', name: 'Groceries' },
+      { id: 'electricity-bill', name: 'Electricity bill' },
+    ]
+    itemsLoaded = true
+  } finally {
+    loadingItems.value = false
+  }
+}
 
 async function loadCategories() {
   if (categoriesLoaded) return
@@ -183,6 +213,7 @@ function resetForm() {
 watch(isOpen, (open) => {
   if (open) {
     resetForm()
+    loadItems()
     loadCategories()
   }
 })
@@ -203,7 +234,7 @@ function clearServerError(field: string) {
 
 function validate() {
   errors.value = {}
-  if (!name.value.trim()) errors.value.name = 'Expense name is required'
+  if (!name.value.trim()) errors.value.name = 'Select or create an expense item'
   if (!amount.value) errors.value.amount = 'Amount is required'
   if (!date.value) errors.value.date = 'Date is required'
   if (!categoryId.value) errors.value.categoryId = 'Select a category'
@@ -264,22 +295,38 @@ function handleSubmit() {
         {{ localServerMessage }}
       </div>
 
-      <!-- 1. Expense name -->
+      <!-- 1. Expense name (select existing item, or create a new one) -->
       <div>
-        <label for="expense-name" class="mb-1.5 block text-sm font-medium text-slate-700">Expense name</label>
-        <input
+        <div class="mb-1.5 flex items-center justify-between">
+          <label for="expense-name" class="block text-sm font-medium text-slate-700">Expense name</label>
+          <button
+            type="button"
+            class="flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-700"
+            @click="showItemModal = true"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            Create item
+          </button>
+        </div>
+        <select
           id="expense-name"
           v-model="name"
-          type="text"
-          placeholder="e.g. Uber to airport"
-          class="w-full rounded-xl border px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition focus:outline-none focus:ring-2"
+          class="w-full rounded-xl border bg-white px-4 py-3 text-sm text-slate-900 transition focus:outline-none focus:ring-2"
           :class="errors.name || localServerErrors?.name
             ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-200'
             : 'border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/30'"
-          @input="clearServerError('name')"
-        />
+          @change="clearServerError('name')"
+        >
+          <option value="" disabled>{{ loadingItems ? 'Loading items…' : 'Select an item' }}</option>
+          <option v-for="i in items" :key="i.id" :value="i.name">{{ i.name }}</option>
+        </select>
         <p v-if="errors.name || localServerErrors?.name" class="mt-1.5 text-xs text-rose-600">
           {{ errors.name || localServerErrors?.name }}
+        </p>
+        <p v-if="items.length === 0 && !loadingItems" class="mt-1.5 text-xs text-slate-400">
+          No items yet — use "Create item" above to add one.
         </p>
       </div>
 
@@ -540,6 +587,8 @@ function handleSubmit() {
   </Modal>
 
   <CategoryFormModal v-model="showCategoryModal" type="expense" @created="handleCategoryCreated" />
+
+  <ItemFormModal v-model="showItemModal" type="expense" @created="handleItemCreated" />
 </template>
 
 <style scoped>
