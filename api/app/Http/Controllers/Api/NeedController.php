@@ -10,19 +10,68 @@ use Illuminate\Http\Request;
 class NeedController extends Controller
 {
     /**
-     * Get list of needs for the authenticated user.
+     * Get paginated list of needs for the authenticated user and their groups.
      */
     public function index(Request $request): JsonResponse
     {
-        $needs = Need::query()
+        $user = $request->user();
+        $perPage = (int) $request->query('per_page', 9);
+        $search = $request->query('search');
+        $groupId = $request->query('group_id') ?: $request->query('groupId');
+        $type = $request->query('type');
+        $status = $request->query('status');
+
+        $query = Need::query()
             ->with(['category:id,category_name', 'group:id,group_name', 'item:id,name'])
-            ->where('user_id', $request->user()->id)
-            ->orderBy('created_at', 'desc')
-            ->get();
+            ->where(function ($q) use ($user) {
+                // User's own needs OR group needs where user is an active member
+                $q->where('user_id', $user->id)
+                  ->orWhereHas('group.members', function ($mq) use ($user) {
+                      $mq->where('status', 'active')
+                        ->where(function ($sq) use ($user) {
+                            $sq->where('user_id', $user->id);
+                            if ($user->email) $sq->orWhere('email', $user->email);
+                            if ($user->phone_number) $sq->orWhere('phone_number', $user->phone_number);
+                        });
+                  });
+            });
+
+        if (! empty($search)) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhereHas('category', fn($cq) => $cq->where('category_name', 'like', "%{$search}%"))
+                  ->orWhereHas('group', fn($gq) => $gq->where('group_name', 'like', "%{$search}%"));
+            });
+        }
+
+        if (! empty($groupId) && $groupId !== 'all') {
+            $query->where('group_id', $groupId);
+        }
+
+        if (! empty($type) && $type !== 'all') {
+            $query->where('type', $type);
+        }
+
+        if (! empty($status) && $status !== 'all') {
+            $statusVal = strtolower($status);
+            if ($statusVal === 'closed' || $statusVal === 'close') {
+                $query->whereIn('status', ['closed', 'close']);
+            } else {
+                $query->where('status', $statusVal);
+            }
+        }
+
+        $paginated = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
         return response()->json([
             'success' => true,
-            'data' => $needs,
+            'data' => $paginated->items(),
+            'meta' => [
+                'current_page' => $paginated->currentPage(),
+                'last_page' => $paginated->lastPage(),
+                'per_page' => $paginated->perPage(),
+                'total' => $paginated->total(),
+            ],
         ]);
     }
 
@@ -96,10 +145,21 @@ class NeedController extends Controller
      */
     public function show(Request $request, string $id): JsonResponse
     {
+        $user = $request->user();
         $need = Need::query()
             ->with(['category:id,category_name', 'group:id,group_name', 'item:id,name'])
             ->where('id', $id)
-            ->where('user_id', $request->user()->id)
+            ->where(function ($q) use ($user) {
+                $q->where('user_id', $user->id)
+                  ->orWhereHas('group.members', function ($mq) use ($user) {
+                      $mq->where('status', 'active')
+                        ->where(function ($sq) use ($user) {
+                            $sq->where('user_id', $user->id);
+                            if ($user->email) $sq->orWhere('email', $user->email);
+                            if ($user->phone_number) $sq->orWhere('phone_number', $user->phone_number);
+                        });
+                  });
+            })
             ->first();
 
         if (! $need) {
@@ -114,9 +174,20 @@ class NeedController extends Controller
      */
     public function update(Request $request, string $id): JsonResponse
     {
+        $user = $request->user();
         $need = Need::query()
             ->where('id', $id)
-            ->where('user_id', $request->user()->id)
+            ->where(function ($q) use ($user) {
+                $q->where('user_id', $user->id)
+                  ->orWhereHas('group.members', function ($mq) use ($user) {
+                      $mq->where('status', 'active')
+                        ->where(function ($sq) use ($user) {
+                            $sq->where('user_id', $user->id);
+                            if ($user->email) $sq->orWhere('email', $user->email);
+                            if ($user->phone_number) $sq->orWhere('phone_number', $user->phone_number);
+                        });
+                  });
+            })
             ->first();
 
         if (! $need) {

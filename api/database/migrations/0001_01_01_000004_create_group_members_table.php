@@ -16,6 +16,7 @@ return new class extends Migration
             $table->string('phone_number')->nullable();
             $table->string('email')->nullable();
             $table->string('role')->default('member');
+            $table->string('permission')->default('viewer')->index();
             $table->string('status')->default('active')->index();
             $table->timestamp('joined_at')->nullable();
             $table->timestamps();

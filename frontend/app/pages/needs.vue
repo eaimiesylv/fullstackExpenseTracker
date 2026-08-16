@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import NeedFormModal, { type NeedPayload, type InitialNeedData } from '~/components/ui/NeedFormModal.vue'
 import Modal from '~/components/ui/Modal.vue'
+import Pagination from '~/components/ui/Pagination.vue'
 import { useApi } from '~/composables/useApi'
 
 definePageMeta({
@@ -26,6 +27,11 @@ interface NeedItem {
   allow_member_contribution?: boolean
 }
 
+interface GroupOption {
+  id: string
+  name: string
+}
+
 const showModal = ref(false)
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
@@ -41,15 +47,64 @@ const deleteErrorMessage = ref<string | null>(null)
 const needs = ref<NeedItem[]>([])
 const loadingNeeds = ref(true)
 
+// Pagination state
+const currentPage = ref(1)
+const lastPage = ref(1)
+const totalNeeds = ref(0)
+const perPage = ref(9)
+
+// Filters state
 const typeFilter = ref<'all' | 'personal' | 'group'>('all')
 const statusFilter = ref<'all' | 'pending' | 'completed' | 'expired' | 'closed'>('all')
+const groupFilter = ref<string>('all')
 
-async function fetchNeeds() {
+const userGroups = ref<GroupOption[]>([])
+const loadingUserGroups = ref(false)
+
+async function loadUserGroups() {
+  loadingUserGroups.value = true
+  try {
+    const api = useApi()
+    const res: any = await api.get('groups/list')
+    const list = Array.isArray(res) ? res : (res?.data || [])
+    userGroups.value = list.map((g: any) => ({
+      id: g.id,
+      name: g.group_name || g.name,
+    }))
+  } catch (err) {
+    console.error('Failed to load user groups:', err)
+  } finally {
+    loadingUserGroups.value = false
+  }
+}
+
+async function fetchNeeds(page = 1) {
   loadingNeeds.value = true
   try {
     const api = useApi()
-    const res: any = await api.get('needs')
+    const queryParams = new URLSearchParams()
+    queryParams.set('page', String(page))
+    queryParams.set('per_page', String(perPage.value))
+
+    if (typeFilter.value !== 'all') {
+      queryParams.set('type', typeFilter.value)
+    }
+    if (statusFilter.value !== 'all') {
+      queryParams.set('status', statusFilter.value)
+    }
+    if (groupFilter.value !== 'all') {
+      queryParams.set('group_id', groupFilter.value)
+    }
+
+    const res: any = await api.get(`needs?${queryParams.toString()}`)
     needs.value = Array.isArray(res) ? res : (res?.data || [])
+
+    if (res?.meta) {
+      currentPage.value = res.meta.current_page || 1
+      lastPage.value = res.meta.last_page || 1
+      totalNeeds.value = res.meta.total || 0
+      perPage.value = res.meta.per_page || 9
+    }
   } catch (error) {
     console.error('Failed to fetch needs:', error)
   } finally {
@@ -57,25 +112,13 @@ async function fetchNeeds() {
   }
 }
 
-onMounted(() => {
-  fetchNeeds()
+watch([typeFilter, statusFilter, groupFilter], () => {
+  fetchNeeds(1)
 })
 
-const filteredNeeds = computed(() => {
-  return needs.value.filter((n) => {
-    if (typeFilter.value !== 'all' && n.type !== typeFilter.value) {
-      return false
-    }
-    if (statusFilter.value !== 'all') {
-      const st = (n.status || 'pending').toLowerCase()
-      if (statusFilter.value === 'closed') {
-        if (st !== 'closed' && st !== 'close') return false
-      } else if (st !== statusFilter.value) {
-        return false
-      }
-    }
-    return true
-  })
+onMounted(() => {
+  loadUserGroups()
+  fetchNeeds(1)
 })
 
 const totalAmount = computed(() => {
@@ -137,7 +180,7 @@ async function handleSave(payload: NeedPayload) {
 
     showModal.value = false
     editingNeed.value = null
-    await fetchNeeds()
+    await fetchNeeds(currentPage.value)
   } catch (error: any) {
     const apiError = error || {}
     errorMessage.value = apiError.message || 'Something went wrong. Please try again.'
@@ -172,7 +215,7 @@ async function confirmDelete() {
     await api.delete(`needs/${deletingNeed.value.id}`)
     showDeleteModal.value = false
     deletingNeed.value = null
-    await fetchNeeds()
+    await fetchNeeds(currentPage.value)
   } catch (err: any) {
     deleteErrorMessage.value = err?.message || 'Could not delete need. Please try again.'
   } finally {
@@ -183,12 +226,12 @@ async function confirmDelete() {
 async function updateNeedStatus(need: NeedItem, newStatus: string) {
   if (need.status === newStatus) return
   const oldStatus = need.status
-  need.status = newStatus // optimistic update
+  need.status = newStatus
   try {
     const api = useApi()
     await api.put(`needs/${need.id}`, { status: newStatus })
   } catch (err) {
-    need.status = oldStatus // revert on failure
+    need.status = oldStatus
     console.error('Failed to update status:', err)
   }
 }
@@ -207,12 +250,6 @@ function getStatusBadgeClass(status?: string) {
     default:
       return 'bg-amber-50 text-amber-700 border-amber-200'
   }
-}
-
-function formatStatusLabel(status?: string) {
-  const st = (status || 'pending').toLowerCase()
-  if (st === 'close') return 'Closed'
-  return st.charAt(0).toUpperCase() + st.slice(1)
 }
 
 function formatCurrency(val: string | number) {
@@ -249,10 +286,10 @@ function formatDate(dateStr?: string | null) {
     <!-- Summary Stats Bar -->
     <div v-if="!loadingNeeds && needs.length > 0" class="grid grid-cols-1 gap-4 sm:grid-cols-3">
       <div class="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-        <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Total Needs</span>
+        <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Page Amount Total</span>
         <div class="mt-1 flex items-baseline justify-between">
           <span class="text-2xl font-bold text-slate-900">{{ formatCurrency(totalAmount) }}</span>
-          <span class="text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{{ needs.length }} items</span>
+          <span class="text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{{ totalNeeds || needs.length }} items</span>
         </div>
       </div>
       <div class="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
@@ -275,8 +312,8 @@ function formatDate(dateStr?: string | null) {
       </div>
     </div>
 
-    <!-- Filters Toolbar -->
-    <div v-if="!loadingNeeds && needs.length > 0" class="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50/80 p-2 border border-slate-100">
+    <!-- Filters Toolbar (Type, Status, & Group Filter) -->
+    <div class="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50/80 p-2.5 border border-slate-100">
       <div class="flex items-center gap-1">
         <button
           type="button"
@@ -304,47 +341,31 @@ function formatDate(dateStr?: string | null) {
         </button>
       </div>
 
-      <div class="flex items-center gap-1 border-l border-slate-200 pl-3">
-        <button
-          type="button"
-          class="rounded-xl px-3 py-1.5 text-xs font-semibold transition"
-          :class="statusFilter === 'all' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'"
-          @click="statusFilter = 'all'"
+      <div class="flex items-center gap-2">
+        <!-- Group Filter Dropdown (User's Groups Only) -->
+        <div class="flex items-center gap-1.5">
+          <label for="group-filter" class="text-xs font-medium text-slate-500 hidden sm:inline">Group:</label>
+          <select
+            id="group-filter"
+            v-model="groupFilter"
+            class="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+          >
+            <option value="all">All Belonged Groups</option>
+            <option v-for="g in userGroups" :key="g.id" :value="g.id">{{ g.name }}</option>
+          </select>
+        </div>
+
+        <!-- Status Filter Dropdown -->
+        <select
+          v-model="statusFilter"
+          class="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
         >
-          All Status
-        </button>
-        <button
-          type="button"
-          class="rounded-xl px-3 py-1.5 text-xs font-semibold transition"
-          :class="statusFilter === 'pending' ? 'bg-white text-amber-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'"
-          @click="statusFilter = 'pending'"
-        >
-          Pending
-        </button>
-        <button
-          type="button"
-          class="rounded-xl px-3 py-1.5 text-xs font-semibold transition"
-          :class="statusFilter === 'completed' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'"
-          @click="statusFilter = 'completed'"
-        >
-          Completed
-        </button>
-        <button
-          type="button"
-          class="rounded-xl px-3 py-1.5 text-xs font-semibold transition"
-          :class="statusFilter === 'expired' ? 'bg-white text-rose-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'"
-          @click="statusFilter = 'expired'"
-        >
-          Expired
-        </button>
-        <button
-          type="button"
-          class="rounded-xl px-3 py-1.5 text-xs font-semibold transition"
-          :class="statusFilter === 'closed' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'"
-          @click="statusFilter = 'closed'"
-        >
-          Closed
-        </button>
+          <option value="all">All Status</option>
+          <option value="pending">Pending Only</option>
+          <option value="completed">Completed Only</option>
+          <option value="expired">Expired Only</option>
+          <option value="closed">Closed Only</option>
+        </select>
       </div>
     </div>
 
@@ -355,7 +376,7 @@ function formatDate(dateStr?: string | null) {
 
     <!-- Empty State -->
     <div
-      v-else-if="needs.length === 0"
+      v-else-if="totalNeeds === 0 && groupFilter === 'all' && typeFilter === 'all' && statusFilter === 'all'"
       class="flex h-full min-h-[350px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 p-8 text-center"
     >
       <div class="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
@@ -381,14 +402,14 @@ function formatDate(dateStr?: string | null) {
 
     <!-- Filter Empty State -->
     <div
-      v-else-if="filteredNeeds.length === 0"
+      v-else-if="needs.length === 0"
       class="flex min-h-[250px] flex-col items-center justify-center rounded-2xl border border-slate-100 bg-slate-50/50 p-6 text-center"
     >
       <p class="text-sm font-medium text-slate-600">No needs match your selected filters.</p>
       <button
         type="button"
         class="mt-3 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
-        @click="typeFilter = 'all'; statusFilter = 'all'"
+        @click="typeFilter = 'all'; statusFilter = 'all'; groupFilter = 'all'"
       >
         Reset filters
       </button>
@@ -397,7 +418,7 @@ function formatDate(dateStr?: string | null) {
     <!-- Needs List Grid -->
     <div v-else class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <div
-        v-for="need in filteredNeeds"
+        v-for="need in needs"
         :key="need.id"
         class="group relative flex flex-col justify-between rounded-2xl border border-slate-100 bg-white p-5 shadow-sm transition hover:border-slate-200 hover:shadow-md"
       >
@@ -483,6 +504,17 @@ function formatDate(dateStr?: string | null) {
         </div>
       </div>
     </div>
+
+    <!-- Reusable Server-Side Pagination Bar -->
+    <Pagination
+      v-if="!loadingNeeds && lastPage > 1"
+      v-model:current-page="currentPage"
+      :last-page="lastPage"
+      :total="totalNeeds"
+      :per-page="perPage"
+      :loading="loadingNeeds"
+      @change="fetchNeeds"
+    />
 
     <!-- Create / Edit Need Modal -->
     <NeedFormModal

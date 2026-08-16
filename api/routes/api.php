@@ -8,8 +8,10 @@ use App\Http\Controllers\Api\Auth\ResendPasswordResetOtpController;
 use App\Http\Controllers\Api\Auth\ResendVerificationOtpController;
 use App\Http\Controllers\Api\Auth\ResetPasswordController;
 use App\Http\Controllers\Api\Auth\VerifyEmailController;
+use App\Http\Controllers\Api\BudgetController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\GroupController;
+use App\Http\Controllers\Api\GroupMemberController;
 use App\Http\Controllers\Api\ItemController;
 use App\Http\Controllers\Api\NeedController;
 use Illuminate\Http\Request;
@@ -29,14 +31,24 @@ Route::get('/user', function (Request $request) {
 })->middleware('auth:sanctum');
 
 Route::group(['middleware' => ['auth:sanctum']], function () {
+    // User search for group members
+    Route::get('/users/search', [GroupMemberController::class, 'searchUsers']);
+
     // Groups
     Route::group(['prefix' => 'groups'], function () {
+        Route::get('/permissions', [GroupController::class, 'getPermissions']);
         Route::get('/list', [GroupController::class, 'list']);
         Route::get('/', [GroupController::class, 'index']);
         Route::post('/', [GroupController::class, 'store']);
         Route::get('/{id}', [GroupController::class, 'show']);
         Route::put('/{id}', [GroupController::class, 'update']);
         Route::delete('/{id}', [GroupController::class, 'destroy']);
+
+        // Members
+        Route::get('/{groupId}/members', [GroupMemberController::class, 'index']);
+        Route::post('/{groupId}/members', [GroupMemberController::class, 'store']);
+        Route::put('/{groupId}/members/{memberId}', [GroupMemberController::class, 'update']);
+        Route::delete('/{groupId}/members/{memberId}', [GroupMemberController::class, 'destroy']);
     });
 
     // Categories
@@ -60,5 +72,16 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         Route::get('/{id}', [NeedController::class, 'show']);
         Route::put('/{id}', [NeedController::class, 'update']);
         Route::delete('/{id}', [NeedController::class, 'destroy']);
+    });
+
+    // Budgets
+    Route::group(['prefix' => 'budgets'], function () {
+        Route::get('/', [BudgetController::class, 'index']);
+        Route::post('/', [BudgetController::class, 'store']);
+        Route::get('/{id}', [BudgetController::class, 'show']);
+        Route::put('/{id}', [BudgetController::class, 'update']);
+        Route::delete('/{id}', [BudgetController::class, 'destroy']);
+        Route::post('/{id}/contributions', [BudgetController::class, 'storeContribution']);
+        Route::post('/{id}/items', [BudgetController::class, 'storeBudgetItem']);
     });
 });

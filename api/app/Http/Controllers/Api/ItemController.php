@@ -10,7 +10,7 @@ use Illuminate\Http\Request;
 class ItemController extends Controller
 {
     /**
-     * Get all items available for the current user (system or user-created).
+     * Get items filtered by type available for the current user.
      */
     public function index(Request $request): JsonResponse
     {
@@ -22,11 +22,8 @@ class ItemController extends Controller
                   ->orWhere('user_id', $request->user()->id);
             });
 
-        if ($type) {
-            $query->where(function ($q) use ($type) {
-                $q->where('type', $type)
-                  ->orWhereNull('type');
-            });
+        if (! empty($type)) {
+            $query->where('type', $type);
         }
 
         $items = $query->orderBy('name', 'asc')->get(['id', 'name', 'type']);
@@ -44,7 +41,7 @@ class ItemController extends Controller
     }
 
     /**
-     * Store a new item.
+     * Store a new item with a specific type namespace.
      */
     public function store(Request $request): JsonResponse
     {
@@ -56,7 +53,7 @@ class ItemController extends Controller
         $item = Item::create([
             'user_id' => $request->user()->id,
             'name' => trim($validated['name']),
-            'type' => $validated['type'] ?? null,
+            'type' => $validated['type'] ?? 'general',
         ]);
 
         return response()->json([

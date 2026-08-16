@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import Modal from '~/components/ui/Modal.vue'
 import CategoryFormModal, { type CategoryOption } from '~/components/ui/CategoryFormModal.vue'
+import ItemFormModal, { type ItemOption } from '~/components/ui/ItemFormModal.vue'
 import BudgetItemsModal, { type BudgetItem } from '~/components/ui/BudgetItemsModal.vue'
 import { useApi } from '~/composables/useApi'
 
@@ -35,6 +36,7 @@ const emit = defineEmits<{
 }>()
 
 const name = ref('')
+const selectedBudgetNameId = ref('')
 const type = ref<'personal' | 'group'>('personal')
 const amount = ref('')
 const categoryId = ref('')
@@ -44,8 +46,9 @@ const groupId = ref('')
 const allowMemberContribution = ref(false)
 
 const showCategoryModal = ref(false)
+const showItemModal = ref(false)
 
-// Sub-items: budgets broken into line items (e.g. Party -> Transport, Feeding, Drinks)
+// Breakdown mode toggle
 const hasSubItems = ref(false)
 const budgetItems = ref<BudgetItem[]>([])
 const showItemsModal = ref(false)
@@ -70,6 +73,10 @@ const categories = ref<Option[]>([])
 const loadingCategories = ref(false)
 let categoriesLoaded = false
 
+const budgetNameItems = ref<Option[]>([])
+const loadingItems = ref(false)
+let itemsLoaded = false
+
 interface GroupOption {
   id: string
   name: string
@@ -83,16 +90,36 @@ async function loadCategories() {
   loadingCategories.value = true
   try {
     const api = useApi()
-    // categories.value = await api.get('budget-categories')
-    categories.value = [
-      { id: 'household', name: 'Household' },
-      { id: 'savings', name: 'Savings & Investments' },
-      { id: 'entertainment', name: 'Entertainment & Leisure' },
-      { id: 'projects', name: 'Projects' },
-    ]
+    const res: any = await api.get('categories/all')
+    const list = Array.isArray(res) ? res : (res?.data || [])
+    categories.value = list.map((c: any) => ({
+      id: c.id,
+      name: c.category_name || c.name,
+    }))
     categoriesLoaded = true
+  } catch (err) {
+    console.error('Failed to load categories', err)
   } finally {
     loadingCategories.value = false
+  }
+}
+
+async function loadBudgetNameItems() {
+  if (itemsLoaded) return
+  loadingItems.value = true
+  try {
+    const api = useApi()
+    const res: any = await api.get('items?type=budget_name')
+    const list = Array.isArray(res) ? res : (res?.data || [])
+    budgetNameItems.value = list.map((i: any) => ({
+      id: i.id,
+      name: i.name,
+    }))
+    itemsLoaded = true
+  } catch (err) {
+    console.error('Failed to load budget names', err)
+  } finally {
+    loadingItems.value = false
   }
 }
 
@@ -101,13 +128,15 @@ async function loadGroups() {
   loadingGroups.value = true
   try {
     const api = useApi()
-    // groups.value = await api.get('groups')
-    groups.value = [
-      { id: 'family', name: 'Family' },
-      { id: 'roommates', name: 'Roommates' },
-      { id: 'office', name: 'Office Lunch Crew' },
-    ]
+    const res: any = await api.get('groups/list')
+    const list = Array.isArray(res) ? res : (res?.data || [])
+    groups.value = list.map((g: any) => ({
+      id: g.id,
+      name: g.group_name || g.name,
+    }))
     groupsLoaded = true
+  } catch (err) {
+    console.error('Failed to load groups', err)
   } finally {
     loadingGroups.value = false
   }
@@ -123,8 +152,23 @@ function handleCategoryCreated(category: CategoryOption) {
   clearServerError('categoryId')
 }
 
-// Sum of all sub-items — this is the single source of truth for `amount`
-// whenever hasSubItems is on, so the total field can never drift out of sync.
+function handleBudgetNameCreated(item: ItemOption) {
+  budgetNameItems.value.push(item)
+  selectedBudgetNameId.value = item.id
+  name.value = item.name
+  clearServerError('name')
+}
+
+function handleSelectBudgetName(selectedId: string) {
+  selectedBudgetNameId.value = selectedId
+  const found = budgetNameItems.value.find((i) => i.id === selectedId)
+  if (found) {
+    name.value = found.name
+    clearServerError('name')
+  }
+}
+
+// Sum of all sub-items
 const itemsTotal = computed(() =>
   budgetItems.value.reduce((sum, i) => sum + (Number(i.amount) || 0), 0)
 )
@@ -138,7 +182,6 @@ function handleItemsSaved(items: BudgetItem[]) {
 
 watch(hasSubItems, (on) => {
   if (!on) {
-    // switching back to a plain total: clear items, leave amount editable again
     budgetItems.value = []
   } else if (budgetItems.value.length === 0) {
     showItemsModal.value = true
@@ -147,6 +190,7 @@ watch(hasSubItems, (on) => {
 
 function resetForm() {
   name.value = ''
+  selectedBudgetNameId.value = ''
   type.value = 'personal'
   amount.value = ''
   categoryId.value = ''
@@ -165,6 +209,7 @@ watch(isOpen, (open) => {
   if (open) {
     resetForm()
     loadCategories()
+    loadBudgetNameItems()
   }
 })
 
@@ -184,10 +229,10 @@ function clearServerError(field: string) {
 
 function validate() {
   errors.value = {}
-  if (!name.value.trim()) errors.value.name = 'Budget name is required'
+  if (!name.value.trim()) errors.value.name = 'Select or create a budget name'
 
   if (hasSubItems.value && budgetItems.value.length === 0) {
-    errors.value.items = 'Add at least one budget item'
+    errors.value.items = 'Configure at least one line item'
   } else if (!amount.value) {
     errors.value.amount = 'Budget amount is required'
   }
@@ -233,22 +278,40 @@ function handleSubmit() {
         {{ localServerMessage }}
       </div>
 
-      <!-- Budget name -->
+      <!-- Budget Name Select Field ONLY with + Create budget name link -->
       <div>
-        <label for="budget-name" class="mb-1.5 block text-sm font-medium text-slate-700">Budget name</label>
-        <input
-          id="budget-name"
-          v-model="name"
-          type="text"
-          placeholder="e.g. Family Monthly Budget"
-          class="w-full rounded-xl border px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition focus:outline-none focus:ring-2"
+        <div class="mb-1.5 flex items-center justify-between">
+          <label for="budget-name-select" class="block text-sm font-medium text-slate-700">Budget name</label>
+          <button
+            type="button"
+            class="flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-700"
+            @click="showItemModal = true"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            Create budget name
+          </button>
+        </div>
+
+        <select
+          id="budget-name-select"
+          :value="selectedBudgetNameId"
+          class="w-full rounded-xl border bg-white px-4 py-3 text-sm text-slate-900 transition focus:outline-none focus:ring-2"
           :class="errors.name || localServerErrors?.name
             ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-200'
             : 'border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/30'"
-          @input="clearServerError('name')"
-        />
+          @change="handleSelectBudgetName(($event.target as HTMLSelectElement).value)"
+        >
+          <option value="" disabled>{{ loadingItems ? 'Loading budget names…' : 'Select a budget name' }}</option>
+          <option v-for="i in budgetNameItems" :key="i.id" :value="i.id">{{ i.name }}</option>
+        </select>
+
         <p v-if="errors.name || localServerErrors?.name" class="mt-1.5 text-xs text-rose-600">
           {{ errors.name || localServerErrors?.name }}
+        </p>
+        <p v-if="budgetNameItems.length === 0 && !loadingItems" class="mt-1.5 text-xs text-slate-400">
+          No budget names yet — click "Create budget name" above to add one.
         </p>
       </div>
 
@@ -275,7 +338,7 @@ function handleSubmit() {
         </div>
       </div>
 
-      <!-- Sub-items toggle -->
+      <!-- Budget Breakdown Toggle Switch -->
       <div>
         <div class="flex items-center justify-between gap-4">
           <div>
@@ -306,10 +369,11 @@ function handleSubmit() {
               class="w-full rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-left text-sm text-slate-600 transition hover:border-indigo-300 hover:bg-indigo-50/50"
               @click="showItemsModal = true"
             >
-              <span v-if="budgetItems.length" class="font-medium text-slate-900">
-                {{ budgetItems.length }} item{{ budgetItems.length > 1 ? 's' : '' }} — ₦{{ itemsTotal.toLocaleString() }} total
+              <span v-if="budgetItems.length" class="font-medium text-slate-900 flex items-center justify-between">
+                <span>{{ budgetItems.length }} line item{{ budgetItems.length > 1 ? 's' : '' }} configured</span>
+                <span class="font-mono text-emerald-600">₦{{ itemsTotal.toLocaleString() }} total</span>
               </span>
-              <span v-else>Add budget items →</span>
+              <span v-else>Configure budget line items →</span>
             </button>
             <p v-if="errors.items" class="mt-1.5 text-xs text-rose-600">{{ errors.items }}</p>
           </div>
@@ -426,8 +490,8 @@ function handleSubmit() {
 
       <div class="flex items-center justify-between gap-4">
         <div>
-          <p class="text-sm font-medium text-slate-700">Do you want to track how money will be raised</p>
-          <p class="mt-0.5 text-xs text-slate-500">You can record contributions from other people.</p>
+          <p class="text-sm font-medium text-slate-700">Do you want to track how money will be raised?</p>
+          <p class="mt-0.5 text-xs text-slate-500">You can record contributions from members or guest contributors.</p>
         </div>
         <button
           type="button"
@@ -464,6 +528,8 @@ function handleSubmit() {
   </Modal>
 
   <CategoryFormModal v-model="showCategoryModal" type="budget" @created="handleCategoryCreated" />
+
+  <ItemFormModal v-model="showItemModal" type="budget_name" @created="handleBudgetNameCreated" />
 
   <BudgetItemsModal v-model="showItemsModal" :existing-items="budgetItems" @submit="handleItemsSaved" />
 </template>
