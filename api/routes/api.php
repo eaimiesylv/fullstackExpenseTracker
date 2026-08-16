@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\Auth\ResendPasswordResetOtpController;
 use App\Http\Controllers\Api\Auth\ResendVerificationOtpController;
 use App\Http\Controllers\Api\Auth\ResetPasswordController;
 use App\Http\Controllers\Api\Auth\VerifyEmailController;
+use App\Http\Controllers\Api\BudgetController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\GroupController;
 use App\Http\Controllers\Api\GroupMemberController;
@@ -71,5 +72,16 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         Route::get('/{id}', [NeedController::class, 'show']);
         Route::put('/{id}', [NeedController::class, 'update']);
         Route::delete('/{id}', [NeedController::class, 'destroy']);
+    });
+
+    // Budgets
+    Route::group(['prefix' => 'budgets'], function () {
+        Route::get('/', [BudgetController::class, 'index']);
+        Route::post('/', [BudgetController::class, 'store']);
+        Route::get('/{id}', [BudgetController::class, 'show']);
+        Route::put('/{id}', [BudgetController::class, 'update']);
+        Route::delete('/{id}', [BudgetController::class, 'destroy']);
+        Route::post('/{id}/contributions', [BudgetController::class, 'storeContribution']);
+        Route::post('/{id}/items', [BudgetController::class, 'storeBudgetItem']);
     });
 });

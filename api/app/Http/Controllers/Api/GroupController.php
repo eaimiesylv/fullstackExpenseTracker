@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\StoreGroupRequest;
-use App\Http\Requests\UpdateGroupRequest;
+use App\Http\Requests\Group\StoreGroupRequest;
+use App\Http\Requests\Group\UpdateGroupRequest;
 use App\Http\Resources\GroupResource;
 use App\Models\Group;
 use App\Models\GroupMember;
