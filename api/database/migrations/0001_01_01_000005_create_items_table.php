@@ -8,20 +8,19 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('categories', function (Blueprint $table) {
+        Schema::create('items', function (Blueprint $table) {
             $table->ulid('id')->primary();
             $table->foreignUlid('user_id')->nullable()->constrained('users')->cascadeOnDelete();
-            $table->string('category_name');
-            $table->text('category_description')->nullable();
-            $table->string('category_type')->nullable();
+            $table->string('name');
+            $table->string('type')->nullable();
             $table->timestamps();
 
-            $table->index(['user_id', 'category_type']);
+            $table->index(['user_id', 'type']);
         });
     }
 
     public function down(): void
     {
-        Schema::dropIfExists('categories');
+        Schema::dropIfExists('items');
     }
 };

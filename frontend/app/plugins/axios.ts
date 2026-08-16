@@ -60,10 +60,15 @@ export default defineNuxtPlugin(() => {
 
       if (error.response?.status === 401) {
         const authStore = useAuthStore()
-        authStore.logout(false)
+        const request = error.config as { headers?: Record<string, any> }
+        const hasAuthHeader = !!request?.headers?.Authorization
 
-        if (import.meta.client) {
-          navigateTo('/login')
+        if (hasAuthHeader) {
+          authStore.logout(false)
+
+          if (import.meta.client) {
+            navigateTo('/login')
+          }
         }
       }
 

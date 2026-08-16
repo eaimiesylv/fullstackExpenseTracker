@@ -25,6 +25,25 @@ class GroupController extends Controller
         ], 201);
     }
 
+    public function list(Request $request): JsonResponse
+    {
+        $groups = Group::query()
+            ->where('owner_id', $request->user()->id)
+            ->orderBy('group_name', 'asc')
+            ->get(['id', 'group_name']);
+
+        $formatted = $groups->map(fn ($g) => [
+            'id' => $g->id,
+            'group_name' => $g->group_name,
+            'name' => $g->group_name,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'data' => $formatted,
+        ]);
+    }
+
     public function index(Request $request): JsonResponse
     {
         $groups = Group::query()
