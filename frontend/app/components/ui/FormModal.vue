@@ -16,6 +16,7 @@ interface Props {
   loading?: boolean
   serverMessage?: string | null
   serverErrors?: Record<string, string> | null
+  zIndex?: number | string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -23,6 +24,7 @@ const props = withDefaults(defineProps<Props>(), {
   loading: false,
   serverMessage: null,
   serverErrors: null,
+  zIndex: 60,
 })
 
 const isOpen = defineModel<boolean>({ default: false })
@@ -90,7 +92,7 @@ function handleSubmit() {
 </script>
 
 <template>
-  <Modal v-model="isOpen" :title="title">
+  <Modal v-model="isOpen" :title="title" :z-index="zIndex">
     <form class="space-y-4" novalidate @submit.prevent="handleSubmit">
       <div v-if="localServerMessage && !localServerErrors" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
         {{ localServerMessage }}
