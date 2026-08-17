@@ -16,6 +16,7 @@ class Need extends Model
         'user_id',
         'item_id',
         'name',
+        'purpose',
         'type',
         'amount',
         'category_id',

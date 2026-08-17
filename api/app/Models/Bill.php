@@ -27,6 +27,8 @@ class Bill extends Model
         'allow_partial_payment',
         'reminder_type',
         'reminder_frequency',
+        'reminder_start_date',
+        'reminder_interval_days',
         'status',
     ];
 
@@ -35,6 +37,8 @@ class Bill extends Model
         'allow_partial_payment' => 'boolean',
         'start_date' => 'date',
         'due_date' => 'date',
+        'reminder_start_date' => 'date',
+        'reminder_interval_days' => 'integer',
     ];
 
     public function owner(): BelongsTo

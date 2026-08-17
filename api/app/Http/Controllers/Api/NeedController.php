@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\GroupMember;
 use App\Models\Need;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -39,6 +40,7 @@ class NeedController extends Controller
         if (! empty($search)) {
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('purpose', 'like', "%{$search}%")
                   ->orWhereHas('category', fn($cq) => $cq->where('category_name', 'like', "%{$search}%"))
                   ->orWhereHas('group', fn($gq) => $gq->where('group_name', 'like', "%{$search}%"));
             });
@@ -76,67 +78,106 @@ class NeedController extends Controller
     }
 
     /**
-     * Store a new need.
+     * Helper function to check group member permission for creating/modifying needs.
+     */
+    private function checkGroupPermission($user, string $groupId): bool
+    {
+        $member = GroupMember::where('group_id', $groupId)
+            ->where('status', 'active')
+            ->where(function ($q) use ($user) {
+                $q->where('user_id', $user->id);
+                if ($user->email) $q->orWhere('email', $user->email);
+            })->first();
+
+        if (! $member) {
+            return false;
+        }
+
+        // Owner and Admin roles always have full permission
+        if (in_array(strtolower($member->role ?? 'member'), ['owner', 'admin'])) {
+            return true;
+        }
+
+        // If member role, check custom permissions array if present
+        $permissions = $member->permissions ?? [];
+        if (is_array($permissions) && ! empty($permissions)) {
+            return in_array('manage_needs', $permissions) || in_array('create_needs', $permissions);
+        }
+
+        return true; // Default active member access
+    }
+
+    /**
+     * Store a new need or an array of needs (bulk creation).
      */
     public function store(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'type' => ['required', 'string', 'in:personal,group'],
-            'amount' => ['required', 'numeric', 'min:0'],
-            'categoryId' => ['nullable', 'string', 'exists:categories,id'],
-            'category_id' => ['nullable', 'string', 'exists:categories,id'],
-            'itemId' => ['nullable', 'string', 'exists:items,id'],
-            'item_id' => ['nullable', 'string', 'exists:items,id'],
-            'startDate' => ['nullable', 'date'],
-            'start_date' => ['nullable', 'date'],
-            'endDate' => ['nullable', 'date'],
-            'end_date' => ['nullable', 'date'],
-            'groupId' => ['nullable', 'string', 'exists:groups,id'],
-            'group_id' => ['nullable', 'string', 'exists:groups,id'],
-            'allowMemberContribution' => ['nullable', 'boolean'],
-            'allow_member_contribution' => ['nullable', 'boolean'],
-            'status' => ['nullable', 'string', 'in:pending,completed,expired,close,closed'],
-        ]);
+        $user = $request->user();
 
-        $categoryId = $validated['categoryId'] ?? $validated['category_id'] ?? null;
-        if (! $categoryId) {
-            return response()->json([
-                'message' => 'Category is required.',
-                'errors' => ['categoryId' => ['Select a category']],
-            ], 422);
+        // Support array of needs (bulk creation) or single payload
+        $rawNeeds = $request->has('needs') && is_array($request->input('needs'))
+            ? $request->input('needs')
+            : [$request->all()];
+
+        $createdNeeds = [];
+
+        foreach ($rawNeeds as $index => $itemData) {
+            $name = trim($itemData['name'] ?? '');
+            if (! $name) {
+                return response()->json([
+                    'message' => 'Need name is required.',
+                    'errors' => ["needs.{$index}.name" => ['Need name is required']],
+                ], 422);
+            }
+
+            $type = $itemData['type'] ?? 'personal';
+            $groupId = $itemData['groupId'] ?? $itemData['group_id'] ?? null;
+
+            if ($type === 'group') {
+                if (! $groupId) {
+                    return response()->json([
+                        'message' => 'Group is required when type is group.',
+                        'errors' => ["needs.{$index}.groupId" => ['Select a group']],
+                    ], 422);
+                }
+
+                if (! $this->checkGroupPermission($user, $groupId)) {
+                    return response()->json([
+                        'message' => 'You do not have permission to add group needs for this group.',
+                    ], 403);
+                }
+            }
+
+            $categoryId = $itemData['categoryId'] ?? $itemData['category_id'] ?? null;
+            if (! $categoryId) {
+                return response()->json([
+                    'message' => 'Category is required.',
+                    'errors' => ["needs.{$index}.categoryId" => ['Select a category']],
+                ], 422);
+            }
+
+            $need = Need::create([
+                'user_id' => $user->id,
+                'name' => $name,
+                'purpose' => ! empty($itemData['purpose']) ? trim($itemData['purpose']) : null,
+                'item_id' => $itemData['itemId'] ?? $itemData['item_id'] ?? null,
+                'type' => $type,
+                'amount' => $itemData['amount'] ?? 0,
+                'category_id' => $categoryId,
+                'start_date' => $itemData['startDate'] ?? $itemData['start_date'] ?? null,
+                'end_date' => $itemData['endDate'] ?? $itemData['end_date'] ?? null,
+                'group_id' => $type === 'group' ? $groupId : null,
+                'allow_member_contribution' => $itemData['allowMemberContribution'] ?? $itemData['allow_member_contribution'] ?? false,
+                'status' => $itemData['status'] ?? 'pending',
+            ]);
+
+            $need->load(['category:id,category_name', 'group:id,group_name', 'item:id,name']);
+            $createdNeeds[] = $need;
         }
-
-        $groupId = $validated['groupId'] ?? $validated['group_id'] ?? null;
-        if ($validated['type'] === 'group' && ! $groupId) {
-            return response()->json([
-                'message' => 'Group is required when type is group.',
-                'errors' => [
-                    'groupId' => ['Select a group'],
-                    'group_id' => ['Select a group'],
-                ],
-            ], 422);
-        }
-
-        $need = Need::create([
-            'user_id' => $request->user()->id,
-            'name' => trim($validated['name']),
-            'item_id' => $validated['itemId'] ?? $validated['item_id'] ?? null,
-            'type' => $validated['type'],
-            'amount' => $validated['amount'],
-            'category_id' => $categoryId,
-            'start_date' => $validated['startDate'] ?? $validated['start_date'] ?? null,
-            'end_date' => $validated['endDate'] ?? $validated['end_date'] ?? null,
-            'group_id' => $validated['type'] === 'group' ? ($validated['groupId'] ?? $validated['group_id'] ?? null) : null,
-            'allow_member_contribution' => $validated['allowMemberContribution'] ?? $validated['allow_member_contribution'] ?? false,
-            'status' => $validated['status'] ?? 'pending',
-        ]);
-
-        $need->load(['category:id,category_name', 'group:id,group_name', 'item:id,name']);
 
         return response()->json([
             'success' => true,
-            'data' => $need,
+            'data' => count($createdNeeds) === 1 ? $createdNeeds[0] : $createdNeeds,
         ], 201);
     }
 
@@ -170,7 +211,7 @@ class NeedController extends Controller
     }
 
     /**
-     * Update a need.
+     * Update a need with group permission checks.
      */
     public function update(Request $request, string $id): JsonResponse
     {
@@ -194,8 +235,18 @@ class NeedController extends Controller
             return response()->json(['success' => false, 'message' => 'Need not found.'], 404);
         }
 
+        // If need is a group need, verify group member permission
+        if ($need->type === 'group' && $need->group_id && $need->user_id !== $user->id) {
+            if (! $this->checkGroupPermission($user, $need->group_id)) {
+                return response()->json([
+                    'message' => 'You do not have permission to modify this group need.',
+                ], 403);
+            }
+        }
+
         $validated = $request->validate([
             'name' => ['nullable', 'string', 'max:255'],
+            'purpose' => ['nullable', 'string', 'max:1000'],
             'type' => ['nullable', 'string', 'in:personal,group'],
             'amount' => ['nullable', 'numeric', 'min:0'],
             'categoryId' => ['nullable', 'string', 'exists:categories,id'],
@@ -215,6 +266,7 @@ class NeedController extends Controller
 
         $updateData = [];
         if (isset($validated['name'])) $updateData['name'] = trim($validated['name']);
+        if (array_key_exists('purpose', $validated)) $updateData['purpose'] = $validated['purpose'];
         if (isset($validated['type'])) $updateData['type'] = $validated['type'];
         if (isset($validated['amount'])) $updateData['amount'] = $validated['amount'];
         if (isset($validated['categoryId']) || isset($validated['category_id'])) {
@@ -244,17 +296,36 @@ class NeedController extends Controller
     }
 
     /**
-     * Delete a need.
+     * Delete a need with group permission checks.
      */
     public function destroy(Request $request, string $id): JsonResponse
     {
+        $user = $request->user();
         $need = Need::query()
             ->where('id', $id)
-            ->where('user_id', $request->user()->id)
+            ->where(function ($q) use ($user) {
+                $q->where('user_id', $user->id)
+                  ->orWhereHas('group.members', function ($mq) use ($user) {
+                      $mq->where('status', 'active')
+                        ->where(function ($sq) use ($user) {
+                            $sq->where('user_id', $user->id);
+                            if ($user->email) $sq->orWhere('email', $user->email);
+                            if ($user->phone_number) $sq->orWhere('phone_number', $user->phone_number);
+                        });
+                  });
+            })
             ->first();
 
         if (! $need) {
             return response()->json(['success' => false, 'message' => 'Need not found.'], 404);
+        }
+
+        if ($need->type === 'group' && $need->group_id && $need->user_id !== $user->id) {
+            if (! $this->checkGroupPermission($user, $need->group_id)) {
+                return response()->json([
+                    'message' => 'You do not have permission to delete this group need.',
+                ], 403);
+            }
         }
 
         $need->delete();

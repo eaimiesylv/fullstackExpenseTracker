@@ -6,12 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Models\Bill;
 use App\Models\BillParticipant;
 use App\Models\BillPayment;
-use App\Models\Group;
 use App\Models\GroupMember;
-use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
 
 class BillController extends Controller
 {
@@ -32,7 +29,12 @@ class BillController extends Controller
         $endDate = $request->query('end_date') ?: $request->query('endDate');
 
         $query = Bill::query()
-            ->with(['category:id,category_name', 'group:id,group_name', 'participants'])
+            ->with([
+                'category:id,category_name',
+                'group:id,group_name',
+                'participants.user:id,fullname,email',
+                'participants.groupMember',
+            ])
             ->withSum('participants as total_assigned', 'amount_assigned')
             ->withSum('participants as total_collected', 'amount_paid')
             ->where(function ($q) use ($user) {
@@ -100,6 +102,25 @@ class BillController extends Controller
                 $paymentStatus = 'incomplete';
             }
 
+            $formattedParticipants = $b->participants->map(function ($p) {
+                $name = $p->user ? $p->user->fullname : ($p->participant_name ?: 'Participant');
+                $email = $p->user ? $p->user->email : null;
+                $pAssigned = (float) $p->amount_assigned;
+                $pPaid = (float) $p->amount_paid;
+                $pOutstanding = max(0, $pAssigned - $pPaid);
+
+                return [
+                    'id' => $p->id,
+                    'name' => $name,
+                    'email' => $email,
+                    'is_guest' => (bool) $p->is_guest,
+                    'amount_assigned' => $pAssigned,
+                    'amount_paid' => $pPaid,
+                    'outstanding' => $pOutstanding,
+                    'status' => $p->status,
+                ];
+            });
+
             return array_merge($b->toArray(), [
                 'name' => $b->title,
                 'due_date' => $b->due_date ? $b->due_date->toDateString() : null,
@@ -108,6 +129,7 @@ class BillController extends Controller
                 'total_collected' => $collected,
                 'total_outstanding' => $outstanding,
                 'computed_status' => $paymentStatus,
+                'participants' => $formattedParticipants,
                 'is_owner' => $b->owner_id === $user->id,
             ]);
         });
@@ -202,7 +224,10 @@ class BillController extends Controller
 
         // Create participant split records if group bill
         if ($scope === 'group' && $groupId) {
-            $groupMembers = GroupMember::where('group_id', $groupId)->where('status', 'active')->get();
+            $groupMembers = GroupMember::where('group_id', $groupId)
+                ->where('status', 'active')
+                ->with('user:id,fullname,email')
+                ->get();
             $count = $groupMembers->count();
 
             if ($count > 0) {
@@ -244,7 +269,7 @@ class BillController extends Controller
             ]);
         }
 
-        $bill->load(['category:id,category_name', 'group:id,group_name', 'participants']);
+        $bill->load(['category:id,category_name', 'group:id,group_name', 'participants.user:id,fullname,email']);
 
         return response()->json([
             'success' => true,
@@ -429,7 +454,7 @@ class BillController extends Controller
     }
 
     /**
-     * Send email reminder to participants.
+     * Send email reminder to participants with incomplete or pending payment.
      */
     public function sendReminder(Request $request, string $id): JsonResponse
     {
@@ -441,6 +466,8 @@ class BillController extends Controller
         $validated = $request->validate([
             'reminder_type' => ['required', 'string', 'in:now,custom'],
             'frequency' => ['nullable', 'string', 'max:50'],
+            'reminder_start_date' => ['nullable', 'date'],
+            'reminder_interval_days' => ['nullable', 'integer', 'min:1'],
         ]);
 
         $reminderType = $validated['reminder_type'];
@@ -449,11 +476,13 @@ class BillController extends Controller
         $bill->update([
             'reminder_type' => $reminderType,
             'reminder_frequency' => $frequency,
+            'reminder_start_date' => $validated['reminder_start_date'] ?? null,
+            'reminder_interval_days' => $validated['reminder_interval_days'] ?? null,
         ]);
 
         $msg = $reminderType === 'now'
-            ? 'Reminder emails sent immediately to pending participants.'
-            : "Scheduled recurring reminders ({$frequency}) successfully configured.";
+            ? 'Reminder emails sent immediately to all participants with incomplete payments.'
+            : "Scheduled recurring reminder (starting on {$bill->reminder_start_date?->toDateString()} every {$bill->reminder_interval_days} days) configured for incomplete payments.";
 
         return response()->json([
             'success' => true,

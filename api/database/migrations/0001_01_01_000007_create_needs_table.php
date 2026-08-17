@@ -13,6 +13,7 @@ return new class extends Migration
             $table->foreignUlid('user_id')->constrained('users')->cascadeOnDelete();
             $table->foreignUlid('item_id')->nullable()->constrained('items')->nullOnDelete();
             $table->string('name');
+            $table->text('purpose')->nullable();
             $table->string('type')->default('personal');
             $table->decimal('amount', 15, 2);
             $table->foreignUlid('category_id')->constrained('categories')->restrictOnDelete();

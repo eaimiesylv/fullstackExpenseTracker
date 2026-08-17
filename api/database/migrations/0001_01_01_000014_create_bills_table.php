@@ -25,6 +25,8 @@ return new class extends Migration
             $table->boolean('allow_partial_payment')->default(true);
             $table->string('reminder_type')->default('none'); // none, now, custom
             $table->string('reminder_frequency')->nullable();
+            $table->date('reminder_start_date')->nullable();
+            $table->integer('reminder_interval_days')->nullable();
             $table->string('status')->default('no_payment')->index(); // no_payment, incomplete, full
             $table->timestamps();
             $table->index(['owner_id', 'group_id', 'category_id']);
