@@ -8,8 +8,10 @@ use App\Http\Controllers\Api\Auth\ResendPasswordResetOtpController;
 use App\Http\Controllers\Api\Auth\ResendVerificationOtpController;
 use App\Http\Controllers\Api\Auth\ResetPasswordController;
 use App\Http\Controllers\Api\Auth\VerifyEmailController;
+use App\Http\Controllers\Api\BillController;
 use App\Http\Controllers\Api\BudgetController;
 use App\Http\Controllers\Api\CategoryController;
+use App\Http\Controllers\Api\ExpenseController;
 use App\Http\Controllers\Api\GroupController;
 use App\Http\Controllers\Api\GroupMemberController;
 use App\Http\Controllers\Api\ItemController;
@@ -83,5 +85,25 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         Route::delete('/{id}', [BudgetController::class, 'destroy']);
         Route::post('/{id}/contributions', [BudgetController::class, 'storeContribution']);
         Route::post('/{id}/items', [BudgetController::class, 'storeBudgetItem']);
+    });
+
+    // Expenses
+    Route::group(['prefix' => 'expenses'], function () {
+        Route::get('/', [ExpenseController::class, 'index']);
+        Route::post('/', [ExpenseController::class, 'store']);
+        Route::get('/{id}', [ExpenseController::class, 'show']);
+        Route::put('/{id}', [ExpenseController::class, 'update']);
+        Route::delete('/{id}', [ExpenseController::class, 'destroy']);
+    });
+
+    // Bills & Splits
+    Route::group(['prefix' => 'bills'], function () {
+        Route::get('/', [BillController::class, 'index']);
+        Route::post('/', [BillController::class, 'store']);
+        Route::get('/{id}', [BillController::class, 'show']);
+        Route::put('/{id}', [BillController::class, 'update']);
+        Route::delete('/{id}', [BillController::class, 'destroy']);
+        Route::post('/{id}/payments', [BillController::class, 'recordPayment']);
+        Route::post('/{id}/reminders', [BillController::class, 'sendReminder']);
     });
 });
