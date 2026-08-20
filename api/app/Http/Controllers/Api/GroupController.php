@@ -240,6 +240,12 @@ class GroupController extends Controller
             return response()->json(['success' => false, 'message' => 'Group not found.'], 404);
         }
 
+        // Safely disassociate group from budgets, expenses, needs, and bills
+        \App\Models\Budget::where('group_id', $group->id)->update(['group_id' => null, 'scope' => 'personal']);
+        \App\Models\Expense::where('group_id', $group->id)->update(['group_id' => null, 'expense_type' => 'personal']);
+        \App\Models\Need::where('group_id', $group->id)->update(['group_id' => null, 'type' => 'personal']);
+        \App\Models\Bill::where('group_id', $group->id)->update(['group_id' => null, 'scope' => 'personal']);
+
         $group->delete();
 
         return response()->json(['success' => true]);

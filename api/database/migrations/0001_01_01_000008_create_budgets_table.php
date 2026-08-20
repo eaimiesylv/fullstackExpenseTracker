@@ -12,7 +12,7 @@ return new class extends Migration
         Schema::create('budgets', function (Blueprint $table) {
             $table->ulid('id')->primary();
             $table->foreignUlid('owner_id')->nullable()->constrained('users')->nullOnDelete();
-            $table->foreignUlid('group_id')->nullable()->constrained('groups')->cascadeOnDelete();
+            $table->foreignUlid('group_id')->nullable()->constrained('groups')->nullOnDelete();
             $table->foreignUlid('category_id')->nullable()->constrained('categories')->nullOnDelete();
             $table->string('budget_name');
             $table->text('description')->nullable();

@@ -335,6 +335,11 @@ function formatDate(dateStr?: string | null) {
   if (!dateStr) return 'Recently'
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
+
+function truncateGroup(name?: string, max = 20) {
+  if (!name) return ''
+  return name.length > max ? name.slice(0, max) + '…' : name
+}
 </script>
 
 <template>
@@ -489,7 +494,7 @@ function formatDate(dateStr?: string | null) {
       >
         <div>
           <div class="flex items-start justify-between gap-2">
-            <h3 class="text-lg font-bold text-slate-900">{{ group.group_name }}</h3>
+            <h3 class="text-lg font-bold text-slate-900" :title="group.group_name">{{ truncateGroup(group.group_name) }}</h3>
             <div class="flex items-center gap-1.5">
               <span
                 v-if="authStore.user?.id && group.owner_id === authStore.user.id"

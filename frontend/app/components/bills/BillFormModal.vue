@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import Modal from '~/components/ui/Modal.vue'
 import CategoryFormModal, { type CategoryOption } from '~/components/ui/CategoryFormModal.vue'
+import ItemFormModal, { type ItemOption } from '~/components/ui/ItemFormModal.vue'
 import CustomSplitModal, { type GroupMember } from '~/components/bills/CustomSplitModal.vue'
 import { useApi } from '~/composables/useApi'
 
@@ -18,10 +19,24 @@ const props = withDefaults(defineProps<Props>(), {
 
 const isOpen = defineModel<boolean>({ default: false })
 
-export interface BillPayload {
+export interface PersonalDebtorRow {
+  type: 'registered' | 'guest'
+  userId: string
   name: string
   amount: string
+}
+
+export interface GuestDebtorRow {
+  name: string
+  amount: string
+}
+
+export interface BillPayload {
+  name: string
+  itemId?: string
+  amount: string
   dueDate: string
+  startDate?: string
   categoryId: string
   description?: string
   billType: 'personal' | 'group'
@@ -29,46 +44,56 @@ export interface BillPayload {
   splitMethod?: 'equal' | 'fixed' | 'custom'
   fixedAmountPerMember?: string
   customSplit?: Record<string, string>
+  personalDebtors?: PersonalDebtorRow[]
+  guestDebtors?: GuestDebtorRow[]
   allowPartialPayment: boolean
-  allowPaymentProof: boolean
-  autoReminder: boolean
-  reminderFrequency?: string
 }
 
 const emit = defineEmits<{
   submit: [payload: BillPayload]
 }>()
 
-// 1–5. Core fields
+// Core fields
 const name = ref('')
+const selectedItemId = ref('')
 const amount = ref('')
+const startDate = ref(new Date().toISOString().split('T')[0])
 const dueDate = ref('')
 const categoryId = ref('')
 const description = ref('')
 const showDescription = ref(false)
 
-// 6. Bill type + group
-const billType = ref<'personal' | 'group'>('personal')
+// Bill scope (Group Debt vs Personal Debt)
+const billType = ref<'group' | 'personal'>('group')
 const groupId = ref('')
 
-// 7. Split method
+// Personal Debtors array list (side-by-side name & amount)
+const personalDebtors = ref<PersonalDebtorRow[]>([
+  { type: 'registered', userId: '', name: '', amount: '' },
+])
+
+// Group Guest Debtors array list
+const guestDebtors = ref<GuestDebtorRow[]>([])
+
+// Registered App Users list
+interface AppUser {
+  id: string
+  fullname: string
+  email?: string
+}
+const registeredUsers = ref<AppUser[]>([])
+const loadingUsers = ref(false)
+let usersLoaded = false
+
+// Split method
 const splitMethod = ref<'equal' | 'fixed' | 'custom'>('equal')
-const fixedAmountPerMember = ref('')
 const customSplit = ref<Record<string, string>>({})
 const showCustomSplitModal = ref(false)
 const showCategoryModal = ref(false)
+const showItemModal = ref(false)
 
-// 8. Payment settings
-const allowPartialPayment = ref(false)
-const allowPaymentProof = ref(false)
-const autoReminder = ref(false)
-const reminderFrequency = ref('3_days_before')
-
-const reminderOptions = [
-  { value: '1_day_before', label: '1 day before due date' },
-  { value: '3_days_before', label: '3 days before due date' },
-  { value: '1_week_before', label: '1 week before due date' },
-]
+// Payment settings
+const allowPartialPayment = ref(true)
 
 const errors = ref<{
   name?: string
@@ -76,18 +101,21 @@ const errors = ref<{
   dueDate?: string
   categoryId?: string
   groupId?: string
-  fixedAmountPerMember?: string
   customSplit?: string
+  debtors?: string
 }>({})
 
 const localServerMessage = ref<string | null>(props.serverMessage)
 const localServerErrors = ref<Record<string, string> | null>(props.serverErrors)
 
-// TODO: replace with real endpoints
 interface Option {
   id: string
   name: string
 }
+
+const items = ref<Option[]>([])
+const loadingItems = ref(false)
+let itemsLoaded = false
 
 const categories = ref<Option[]>([])
 const loadingCategories = ref(false)
@@ -101,19 +129,39 @@ const groupMembers = ref<GroupMember[]>([])
 const loadingMembers = ref(false)
 let loadedMembersFor = ''
 
+async function loadBillItems() {
+  if (itemsLoaded) return
+  loadingItems.value = true
+  try {
+    const api = useApi()
+    const res: any = await api.get('items?type=bill')
+    const list = Array.isArray(res) ? res : (res?.data || [])
+    items.value = list.map((i: any) => ({
+      id: i.id,
+      name: i.name,
+    }))
+    itemsLoaded = true
+  } catch (err) {
+    console.error('Failed to load bill items:', err)
+  } finally {
+    loadingItems.value = false
+  }
+}
+
 async function loadCategories() {
   if (categoriesLoaded) return
   loadingCategories.value = true
   try {
     const api = useApi()
-    // categories.value = await api.get('bill-categories')
-    categories.value = [
-      { id: 'rent', name: 'Rent & Utilities' },
-      { id: 'food', name: 'Food' },
-      { id: 'transport', name: 'Transport' },
-      { id: 'subscriptions', name: 'Subscriptions' },
-    ]
+    const res: any = await api.get('categories/all')
+    const list = Array.isArray(res) ? res : (res?.data || [])
+    categories.value = list.map((c: any) => ({
+      id: c.id,
+      name: c.category_name || c.name,
+    }))
     categoriesLoaded = true
+  } catch (err) {
+    console.error('Failed to load categories:', err)
   } finally {
     loadingCategories.value = false
   }
@@ -124,15 +172,38 @@ async function loadGroups() {
   loadingGroups.value = true
   try {
     const api = useApi()
-    // groups.value = await api.get('groups')
-    groups.value = [
-      { id: 'family', name: 'Family' },
-      { id: 'roommates', name: 'Roommates' },
-      { id: 'office', name: 'Office Lunch Crew' },
-    ]
+    const res: any = await api.get('groups/list')
+    const list = Array.isArray(res) ? res : (res?.data || [])
+    groups.value = list.map((g: any) => ({
+      id: g.id,
+      name: g.group_name || g.name,
+    }))
     groupsLoaded = true
+  } catch (err) {
+    console.error('Failed to load groups:', err)
   } finally {
     loadingGroups.value = false
+  }
+}
+
+async function searchRegisteredUsers(query = '') {
+  if (usersLoaded && !query) return
+  loadingUsers.value = true
+  try {
+    const api = useApi()
+    const endpoint = query.trim() ? `users/search?query=${encodeURIComponent(query.trim())}` : 'users/search?query=a'
+    const res: any = await api.get(endpoint)
+    const list = Array.isArray(res) ? res : (res?.data || [])
+    registeredUsers.value = list.map((u: any) => ({
+      id: u.id,
+      fullname: u.fullname || u.name || u.email,
+      email: u.email,
+    }))
+    usersLoaded = true
+  } catch (err) {
+    console.error('Failed to search users:', err)
+  } finally {
+    loadingUsers.value = false
   }
 }
 
@@ -141,21 +212,20 @@ async function loadGroupMembers(id: string) {
   loadingMembers.value = true
   try {
     const api = useApi()
-    // groupMembers.value = await api.get(`groups/${id}/members`)
-    groupMembers.value = [
-      { id: 'u1', name: 'Ada Okafor' },
-      { id: 'u2', name: 'Bayo Adeyemi' },
-      { id: 'u3', name: 'Tunde Bello' },
-    ]
+    const res: any = await api.get(`groups/${id}`)
+    const members = res?.data?.members || res?.members || []
+    groupMembers.value = members.map((m: any) => ({
+      id: m.id,
+      name: m.user ? m.user.fullname : (m.name || m.email || 'Member'),
+      email: m.user ? m.user.email : (m.email || ''),
+    }))
     loadedMembersFor = id
+  } catch (err) {
+    console.error('Failed to load group members:', err)
   } finally {
     loadingMembers.value = false
   }
 }
-
-watch(billType, (value) => {
-  if (value === 'group') loadGroups()
-})
 
 watch(groupId, (value) => {
   if (value && splitMethod.value === 'custom') loadGroupMembers(value)
@@ -165,22 +235,105 @@ watch(splitMethod, (value) => {
   if (value === 'custom' && groupId.value) loadGroupMembers(groupId.value)
 })
 
+watch(billType, (val) => {
+  if (val === 'group') {
+    loadGroups()
+  } else {
+    searchRegisteredUsers()
+  }
+})
+
+function addPersonalDebtorRow() {
+  personalDebtors.value.push({ type: 'registered', userId: '', name: '', amount: '' })
+}
+
+function removePersonalDebtorRow(index: number) {
+  if (personalDebtors.value.length > 1) {
+    personalDebtors.value.splice(index, 1)
+  }
+}
+
+function addGuestDebtorRow() {
+  guestDebtors.value.push({ name: '', amount: '' })
+}
+
+function removeGuestDebtorRow(index: number) {
+  guestDebtors.value.splice(index, 1)
+}
+
+function handleRegisteredUserChange(index: number) {
+  const row = personalDebtors.value[index]
+  if (!row) return
+  const found = registeredUsers.value.find((u) => u.id === row.userId)
+  if (found) {
+    row.name = found.fullname
+  }
+}
+
+// Automatically calculate total amount for personal bill from personal debtors
+watch(personalDebtors, (list) => {
+  if (billType.value === 'personal') {
+    const total = list.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
+    if (total > 0) amount.value = String(total)
+  }
+}, { deep: true })
+
+function handleCategoryCreated(category: CategoryOption) {
+  categories.value.push(category)
+  categoryId.value = category.id
+  clearServerError('categoryId')
+}
+
+function handleItemCreated(item: ItemOption) {
+  items.value.push(item)
+  selectedItemId.value = item.id
+  name.value = item.name
+  clearServerError('name')
+}
+
+function handleItemChange() {
+  clearServerError('name')
+  const found = items.value.find((i) => i.id === selectedItemId.value)
+  if (found) {
+    name.value = found.name
+  }
+}
+
+const customSplitSummary = computed(() => {
+  const entries = Object.entries(customSplit.value).filter(([, v]) => v)
+  if (entries.length === 0) return null
+  const total = entries.reduce((sum, [, v]) => sum + (Number(v) || 0), 0)
+  return `${entries.length} member${entries.length > 1 ? 's' : ''} configured — ₦${total.toLocaleString()} total`
+})
+
+const showAmountField = computed(() => {
+  if (billType.value === 'personal') return true
+  return splitMethod.value === 'equal' || splitMethod.value === 'fixed'
+})
+
+function handleCustomSplitSubmit(values: Record<string, string>) {
+  customSplit.value = values
+  errors.value.customSplit = undefined
+  const total = Object.values(values).reduce((sum, v) => sum + (Number(v) || 0), 0)
+  amount.value = total ? String(total) : ''
+}
+
 function resetForm() {
   name.value = ''
+  selectedItemId.value = ''
   amount.value = ''
+  startDate.value = new Date().toISOString().split('T')[0]
   dueDate.value = ''
   categoryId.value = ''
   description.value = ''
   showDescription.value = false
-  billType.value = 'personal'
+  billType.value = 'group'
   groupId.value = ''
   splitMethod.value = 'equal'
-  fixedAmountPerMember.value = ''
+  personalDebtors.value = [{ type: 'registered', userId: '', name: '', amount: '' }]
+  guestDebtors.value = []
   customSplit.value = {}
-  allowPartialPayment.value = false
-  allowPaymentProof.value = false
-  autoReminder.value = false
-  reminderFrequency.value = '3_days_before'
+  allowPartialPayment.value = true
   errors.value = {}
   localServerMessage.value = null
   localServerErrors.value = null
@@ -189,7 +342,10 @@ function resetForm() {
 watch(isOpen, (open) => {
   if (open) {
     resetForm()
+    loadBillItems()
     loadCategories()
+    loadGroups()
+    searchRegisteredUsers()
   }
 })
 
@@ -207,46 +363,27 @@ function clearServerError(field: string) {
   localServerErrors.value = Object.keys(next).length ? next : null
 }
 
-function handleCategoryCreated(category: CategoryOption) {
-  categories.value.push(category)
-  categoryId.value = category.id
-  clearServerError('categoryId')
-}
-
-const customSplitSummary = computed(() => {
-  const entries = Object.entries(customSplit.value).filter(([, v]) => v)
-  if (entries.length === 0) return null
-  const total = entries.reduce((sum, [, v]) => sum + (Number(v) || 0), 0)
-  return `${entries.length} member${entries.length > 1 ? 's' : ''} set — ₦${total.toLocaleString()} total`
-})
-
-const showAmountField = computed(() => {
-  if (billType.value === 'personal') return true
-  if (billType.value === 'group') {
-    return splitMethod.value === 'equal' || splitMethod.value === 'fixed'
-  }
-  return false
-})
-
-function handleCustomSplitSubmit(values: Record<string, string>) {
-  customSplit.value = values
-  errors.value.customSplit = undefined
-  const total = Object.values(values).reduce((sum, v) => sum + (Number(v) || 0), 0)
-  amount.value = total ? String(total) : ''
-}
-
 function validate() {
   errors.value = {}
-  if (!name.value.trim()) errors.value.name = 'Bill name is required'
+  if (!name.value.trim()) errors.value.name = 'Select or create a bill item'
   if (showAmountField.value && !amount.value) errors.value.amount = 'Amount is required'
   if (!dueDate.value) errors.value.dueDate = 'Due date is required'
   if (!categoryId.value) errors.value.categoryId = 'Select a category'
 
   if (billType.value === 'group') {
     if (!groupId.value) errors.value.groupId = 'Select a group'
-
     if (splitMethod.value === 'custom' && Object.keys(customSplit.value).length === 0) {
       errors.value.customSplit = 'Set a custom split for members'
+    }
+  } else if (billType.value === 'personal') {
+    const invalidRow = personalDebtors.value.some((row) => {
+      if (row.type === 'registered' && !row.userId) return true
+      if (row.type === 'guest' && !row.name.trim()) return true
+      if (!row.amount || Number(row.amount) <= 0) return true
+      return false
+    })
+    if (invalidRow) {
+      errors.value.debtors = 'Please fill all debtor name/user and amount fields.'
     }
   }
 
@@ -259,14 +396,14 @@ function handleSubmit() {
 
   const payload: BillPayload = {
     name: name.value,
+    itemId: selectedItemId.value || undefined,
     amount: amount.value,
+    startDate: startDate.value,
     dueDate: dueDate.value,
     categoryId: categoryId.value,
     description: description.value || undefined,
     billType: billType.value,
     allowPartialPayment: allowPartialPayment.value,
-    allowPaymentProof: allowPaymentProof.value,
-    autoReminder: autoReminder.value,
   }
 
   if (billType.value === 'group') {
@@ -274,17 +411,17 @@ function handleSubmit() {
     payload.splitMethod = splitMethod.value
     if (splitMethod.value === 'fixed') payload.fixedAmountPerMember = amount.value
     if (splitMethod.value === 'custom') payload.customSplit = customSplit.value
+    if (guestDebtors.value.length > 0) payload.guestDebtors = guestDebtors.value
+  } else if (billType.value === 'personal') {
+    payload.personalDebtors = personalDebtors.value
   }
-
-  if (autoReminder.value) payload.reminderFrequency = reminderFrequency.value
 
   emit('submit', payload)
 }
 </script>
 
 <template>
-
-  <Modal v-model="isOpen" title="Create Bill" subtitle="Set up a bill and how it should be paid.">
+  <Modal v-model="isOpen" title="Create Bill / Debt" subtitle="Set up a group split bill or personal IOUs owed to you.">
     <form class="space-y-5" novalidate @submit.prevent="handleSubmit">
       <div
         v-if="localServerMessage && !localServerErrors"
@@ -293,29 +430,307 @@ function handleSubmit() {
         {{ localServerMessage }}
       </div>
 
-      <!-- 1. Bill name -->
+      <!-- Scope Switcher (Group Debt vs Personal Debt) -->
       <div>
-        <label for="bill-name" class="mb-1.5 block text-sm font-medium text-slate-700">Bill name</label>
-        <input
-          id="bill-name"
-          v-model="name"
-          type="text"
-          placeholder="e.g. Internet Subscription"
-          class="w-full rounded-xl border px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition focus:outline-none focus:ring-2"
+        <label class="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Bill Type / Scope</label>
+        <div class="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1">
+          <button
+            type="button"
+            class="rounded-xl py-2.5 text-xs font-bold transition flex items-center justify-center gap-1.5"
+            :class="billType === 'group' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'"
+            @click="billType = 'group'"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+            Group Debt / Split
+          </button>
+          <button
+            type="button"
+            class="rounded-xl py-2.5 text-xs font-bold transition flex items-center justify-center gap-1.5"
+            :class="billType === 'personal' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'"
+            @click="billType = 'personal'"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+            Personal Debt / IOU
+          </button>
+        </div>
+      </div>
+
+      <!-- Bill name Item Select with Create Item Link -->
+      <div>
+        <div class="mb-1.5 flex items-center justify-between">
+          <label for="bill-item-select" class="block text-sm font-medium text-slate-700">Bill Item Name</label>
+          <button
+            type="button"
+            class="flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-700"
+            @click="showItemModal = true"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            Create item
+          </button>
+        </div>
+        <select
+          id="bill-item-select"
+          v-model="selectedItemId"
+          class="w-full rounded-xl border bg-white px-4 py-3 text-sm text-slate-900 transition focus:outline-none focus:ring-2"
           :class="errors.name || localServerErrors?.name
             ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-200'
             : 'border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/30'"
-          @input="clearServerError('name')"
-        />
+          @change="handleItemChange"
+        >
+          <option value="" disabled>{{ loadingItems ? 'Loading bill items…' : 'Select a bill item' }}</option>
+          <option v-for="i in items" :key="i.id" :value="i.id">{{ i.name }}</option>
+        </select>
         <p v-if="errors.name || localServerErrors?.name" class="mt-1.5 text-xs text-rose-600">
           {{ errors.name || localServerErrors?.name }}
         </p>
       </div>
 
-      <!-- 2. Total amount / 3. Due date -->
+      <!-- Personal Debtors Section (Side-by-side Name & Amount fields) -->
+      <div v-if="billType === 'personal'" class="space-y-4 rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h4 class="text-xs font-bold text-indigo-900 uppercase tracking-wider">Personal Debtors & Amounts</h4>
+            <p class="text-[11px] text-slate-500">Add registered users or guest debtors with their respective amounts side-by-side.</p>
+          </div>
+        </div>
+
+        <div v-for="(debtor, idx) in personalDebtors" :key="idx" class="space-y-2 rounded-xl bg-white p-3 border border-slate-200/70 shadow-2xs">
+          <div class="flex items-center justify-between">
+            <!-- Payer Type Switcher -->
+            <div class="flex items-center gap-1 rounded-lg bg-slate-100 p-0.5 text-[11px] font-semibold">
+              <button
+                type="button"
+                class="px-2 py-0.5 rounded-md transition"
+                :class="debtor.type === 'registered' ? 'bg-white text-indigo-700 shadow-2xs' : 'text-slate-500'"
+                @click="debtor.type = 'registered'"
+              >
+                Registered User
+              </button>
+              <button
+                type="button"
+                class="px-2 py-0.5 rounded-md transition"
+                :class="debtor.type === 'guest' ? 'bg-white text-indigo-700 shadow-2xs' : 'text-slate-500'"
+                @click="debtor.type = 'guest'"
+              >
+                Guest Contributor
+              </button>
+            </div>
+
+            <button
+              v-if="personalDebtors.length > 1"
+              type="button"
+              class="text-xs font-semibold text-rose-600 hover:text-rose-700"
+              @click="removePersonalDebtorRow(idx)"
+            >
+              Remove
+            </button>
+          </div>
+
+          <!-- Side-by-Side Name & Amount Fields -->
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <!-- Name / Registered User Select -->
+            <div>
+              <label class="mb-1 block text-xs font-semibold text-slate-700">
+                {{ debtor.type === 'registered' ? 'Select Registered User' : 'Guest Debtor Name' }}
+              </label>
+              <select
+                v-if="debtor.type === 'registered'"
+                v-model="debtor.userId"
+                class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                @change="handleRegisteredUserChange(idx)"
+              >
+                <option value="" disabled>{{ loadingUsers ? 'Loading users…' : 'Select registered user' }}</option>
+                <option v-for="u in registeredUsers" :key="u.id" :value="u.id">
+                  {{ u.fullname }} {{ u.email ? `(${u.email})` : '' }}
+                </option>
+              </select>
+
+              <input
+                v-else
+                v-model="debtor.name"
+                type="text"
+                placeholder="e.g. Samuel (Guest)"
+                class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              />
+            </div>
+
+            <!-- Amount (₦) Field -->
+            <div>
+              <label class="mb-1 block text-xs font-semibold text-slate-700">Amount Owed (₦)</label>
+              <div class="relative">
+                <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-xs text-slate-400">₦</span>
+                <input
+                  v-model="debtor.amount"
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  class="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-7 pr-3 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          class="w-full rounded-xl border border-dashed border-indigo-300 bg-white py-2.5 text-center text-xs font-bold text-indigo-600 hover:bg-indigo-50/50 transition flex items-center justify-center gap-1.5"
+          @click="addPersonalDebtorRow"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          Add Another Debtor Entry
+        </button>
+        <p v-if="errors.debtors" class="text-xs text-rose-600">{{ errors.debtors }}</p>
+      </div>
+
+      <!-- Group Selection & Split Method (Group Debt Scope) -->
+      <div v-if="billType === 'group'" class="space-y-4">
+        <div>
+          <label for="bill-group" class="mb-1.5 block text-sm font-medium text-slate-700">Group</label>
+          <select
+            id="bill-group"
+            v-model="groupId"
+            class="w-full rounded-xl border bg-white px-4 py-3 text-sm text-slate-900 transition focus:outline-none focus:ring-2"
+            :class="errors.groupId || localServerErrors?.groupId
+              ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-200'
+              : 'border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/30'"
+            @change="clearServerError('groupId')"
+          >
+            <option value="" disabled>{{ loadingGroups ? 'Loading groups…' : 'Select a group' }}</option>
+            <option v-for="g in groups" :key="g.id" :value="g.id">{{ g.name }}</option>
+          </select>
+          <p v-if="errors.groupId || localServerErrors?.groupId" class="mt-1.5 text-xs text-rose-600">
+            {{ errors.groupId || localServerErrors?.groupId }}
+          </p>
+        </div>
+
+        <!-- Split method selection & Explanations -->
+        <div class="rounded-2xl bg-slate-50/80 p-4 border border-slate-100 space-y-3">
+          <label class="block text-sm font-medium text-slate-700">Split Method</label>
+          <div class="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              class="rounded-xl border bg-white px-3 py-2.5 text-sm font-medium transition"
+              :class="splitMethod === 'equal' ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-bold' : 'border-slate-200 text-slate-600 hover:bg-slate-50'"
+              @click="splitMethod = 'equal'"
+            >
+              Equal
+            </button>
+            <button
+              type="button"
+              class="rounded-xl border bg-white px-3 py-2.5 text-sm font-medium transition"
+              :class="splitMethod === 'fixed' ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-bold' : 'border-slate-200 text-slate-600 hover:bg-slate-50'"
+              @click="splitMethod = 'fixed'"
+            >
+              Fixed
+            </button>
+            <button
+              type="button"
+              class="rounded-xl border bg-white px-3 py-2.5 text-sm font-medium transition"
+              :class="splitMethod === 'custom' ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-bold' : 'border-slate-200 text-slate-600 hover:bg-slate-50'"
+              @click="splitMethod = 'custom'"
+            >
+              Custom
+            </button>
+          </div>
+
+          <!-- Short Description Explanations for Split Methods -->
+          <p v-if="splitMethod === 'equal'" class="text-xs text-slate-600 bg-white p-3 rounded-xl border border-slate-200/70 leading-relaxed">
+            💡 <strong>Equal Split:</strong> The total bill amount is divided equally among all members of the group (Total Bill Amount ÷ Number of Group Members).
+          </p>
+
+          <p v-else-if="splitMethod === 'fixed'" class="text-xs text-slate-600 bg-white p-3 rounded-xl border border-slate-200/70 leading-relaxed">
+            💡 <strong>Fixed Split:</strong> All group members pay the exact same fixed amount specified above.
+          </p>
+
+          <p v-else-if="splitMethod === 'custom'" class="text-xs text-slate-600 bg-white p-3 rounded-xl border border-slate-200/70 leading-relaxed">
+            💡 <strong>Custom Split:</strong> Set individual custom split amounts for each group member.
+          </p>
+
+          <Transition name="expand">
+            <div v-if="splitMethod === 'custom'" class="mt-2">
+              <button
+                type="button"
+                class="w-full rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-left text-sm text-slate-600 transition hover:border-indigo-300 hover:bg-indigo-50/50"
+                @click="showCustomSplitModal = true"
+              >
+                <span v-if="customSplitSummary" class="font-medium text-slate-900">{{ customSplitSummary }}</span>
+                <span v-else>Set custom amounts for members →</span>
+              </button>
+              <p v-if="errors.customSplit" class="mt-1.5 text-xs text-rose-600">{{ errors.customSplit }}</p>
+            </div>
+          </Transition>
+        </div>
+
+        <!-- Add Guest Members to Group Bill (Side-by-side Name & Amount) -->
+        <div class="space-y-3 rounded-2xl border border-slate-200/80 bg-slate-50/60 p-4">
+          <div class="flex items-center justify-between">
+            <h4 class="text-xs font-bold text-slate-700 uppercase tracking-wider">Additional Guest Members (Optional)</h4>
+            <button
+              type="button"
+              class="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+              @click="addGuestDebtorRow"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              Add Guest Member
+            </button>
+          </div>
+
+          <div v-for="(guest, gIdx) in guestDebtors" :key="gIdx" class="grid grid-cols-1 gap-3 sm:grid-cols-2 items-center rounded-xl bg-white p-3 border border-slate-200/70">
+            <div>
+              <label class="mb-1 block text-xs font-semibold text-slate-700">Guest Name</label>
+              <input
+                v-model="guest.name"
+                type="text"
+                placeholder="e.g. Samuel (Guest)"
+                class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              />
+            </div>
+            <div class="relative">
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-xs font-semibold text-slate-700">Amount (₦)</label>
+                <button
+                  type="button"
+                  class="text-[11px] font-semibold text-rose-600 hover:text-rose-700"
+                  @click="removeGuestDebtorRow(gIdx)"
+                >
+                  Remove
+                </button>
+              </div>
+              <div class="relative">
+                <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-xs text-slate-400">₦</span>
+                <input
+                  v-model="guest.amount"
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  class="w-full rounded-xl border border-slate-200 bg-white py-2 pl-7 pr-3 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Total amount & Dates -->
       <div :class="showAmountField ? 'grid grid-cols-2 gap-4' : ''">
         <div v-if="showAmountField">
-          <label for="bill-amount" class="mb-1.5 block text-sm font-medium text-slate-700">Amount (₦)</label>
+          <label for="bill-amount" class="mb-1.5 block text-sm font-medium text-slate-700">
+            {{ billType === 'personal' ? 'Total Personal Debt (₦)' : (splitMethod === 'fixed' ? 'Fixed Amount per Member (₦)' : 'Total Bill Amount (₦)') }}
+          </label>
           <div class="relative">
             <span class="pointer-events-none absolute inset-y-0 left-4 flex items-center text-sm text-slate-400">₦</span>
             <input
@@ -354,7 +769,7 @@ function handleSubmit() {
         </div>
       </div>
 
-      <!-- 4. Category -->
+      <!-- Category -->
       <div>
         <div class="mb-1.5 flex items-center justify-between">
           <label for="bill-category" class="block text-sm font-medium text-slate-700">Category</label>
@@ -386,7 +801,7 @@ function handleSubmit() {
         </p>
       </div>
 
-      <!-- 5. Description (optional, hidden by default) -->
+      <!-- Description -->
       <div>
         <button
           v-if="!showDescription"
@@ -423,118 +838,14 @@ function handleSubmit() {
         </Transition>
       </div>
 
-      <!-- 6. Bill type -->
-      <div>
-        <label class="mb-1.5 block text-sm font-medium text-slate-700">Bill type</label>
-        <div class="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            class="rounded-xl border px-3 py-2.5 text-sm font-medium transition"
-            :class="billType === 'personal' ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'"
-            @click="billType = 'personal'"
-          >
-            Personal
-          </button>
-          <button
-            type="button"
-            class="rounded-xl border px-3 py-2.5 text-sm font-medium transition"
-            :class="billType === 'group' ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'"
-            @click="billType = 'group'"
-          >
-            Group
-          </button>
-        </div>
-      </div>
-
-      <!-- Group select + split method (only when Group) -->
-      <Transition name="expand">
-        <div v-if="billType === 'group'" class="space-y-5 rounded-2xl bg-slate-50 p-4">
-          <div>
-            <label for="bill-group" class="mb-1.5 block text-sm font-medium text-slate-700">Group</label>
-            <select
-              id="bill-group"
-              v-model="groupId"
-              class="w-full rounded-xl border bg-white px-4 py-3 text-sm text-slate-900 transition focus:outline-none focus:ring-2"
-              :class="errors.groupId || localServerErrors?.groupId
-                ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-200'
-                : 'border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/30'"
-              @change="clearServerError('groupId')"
-            >
-              <option value="" disabled>{{ loadingGroups ? 'Loading groups…' : 'Select a group' }}</option>
-              <option v-for="g in groups" :key="g.id" :value="g.id">{{ g.name }}</option>
-            </select>
-            <p v-if="errors.groupId || localServerErrors?.groupId" class="mt-1.5 text-xs text-rose-600">
-              {{ errors.groupId || localServerErrors?.groupId }}
-            </p>
-          </div>
-
-          <!-- 7. Split method -->
-          <div>
-            <label class="mb-1.5 block text-sm font-medium text-slate-700">Split method</label>
-            <div class="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                class="rounded-xl border bg-white px-3 py-2.5 text-sm font-medium transition"
-                :class="splitMethod === 'equal' ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'"
-                @click="splitMethod = 'equal'"
-              >
-                Equal
-              </button>
-              <button
-                type="button"
-                class="rounded-xl border bg-white px-3 py-2.5 text-sm font-medium transition"
-                :class="splitMethod === 'fixed' ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'"
-                @click="splitMethod = 'fixed'"
-              >
-                Fixed
-              </button>
-              <button
-                type="button"
-                class="rounded-xl border bg-white px-3 py-2.5 text-sm font-medium transition"
-                :class="splitMethod === 'custom' ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'"
-                @click="splitMethod = 'custom'"
-              >
-                Custom
-              </button>
-            </div>
-
-            <Transition name="expand">
-              <p v-if="splitMethod === 'equal'" class="mt-2 text-xs text-slate-500">
-                that amount will be divided by members.
-              </p>
-            </Transition>
-
-            <Transition name="expand">
-              <p v-if="splitMethod === 'fixed'" class="mt-2 text-xs text-slate-500">
-                members will pay the same amount.
-              </p>
-            </Transition>
-
-            <Transition name="expand">
-              <div v-if="splitMethod === 'custom'" class="mt-3">
-                <button
-                  type="button"
-                  class="w-full rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-left text-sm text-slate-600 transition hover:border-indigo-300 hover:bg-indigo-50/50"
-                  @click="showCustomSplitModal = true"
-                >
-                  <span v-if="customSplitSummary" class="font-medium text-slate-900">{{ customSplitSummary }}</span>
-                  <span v-else>Set custom amounts for members →</span>
-                </button>
-                <p v-if="errors.customSplit" class="mt-1.5 text-xs text-rose-600">{{ errors.customSplit }}</p>
-              </div>
-            </Transition>
-          </div>
-        </div>
-      </Transition>
-
-      <!-- 8. Payment settings -->
+      <!-- Partial payment setting -->
       <div class="space-y-4 rounded-2xl border border-slate-100 p-4">
-        <p class="text-sm font-medium text-slate-700">Payment settings</p>
-
         <div class="flex items-center justify-between gap-4">
           <div>
-            <p class="text-sm text-slate-700">Allow partial payment</p>
-            <p class="mt-0.5 text-xs text-slate-500">Members can pay their share in installments.</p>
+            <p class="text-sm font-medium text-slate-700">Allow partial payment</p>
+            <p class="mt-0.5 text-xs text-slate-500">
+              When ON, members can pay their share in parts; when OFF, payment must be in full.
+            </p>
           </div>
           <button
             type="button"
@@ -549,61 +860,6 @@ function handleSubmit() {
               :class="allowPartialPayment ? 'translate-x-6' : 'translate-x-1'"
             />
           </button>
-        </div>
-
-        <div class="flex items-center justify-between gap-4">
-          <div>
-            <p class="text-sm text-slate-700">Allow payment proof upload</p>
-            <p class="mt-0.5 text-xs text-slate-500">Members can attach a receipt or screenshot when they pay.</p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            :aria-checked="allowPaymentProof"
-            class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
-            :class="allowPaymentProof ? 'bg-emerald-500' : 'bg-slate-300'"
-            @click="allowPaymentProof = !allowPaymentProof"
-          >
-            <span
-              class="inline-block h-4 w-4 transform rounded-full bg-white transition"
-              :class="allowPaymentProof ? 'translate-x-6' : 'translate-x-1'"
-            />
-          </button>
-        </div>
-
-        <div>
-          <div class="flex items-center justify-between gap-4">
-            <div>
-              <p class="text-sm text-slate-700">Auto reminder</p>
-              <p class="mt-0.5 text-xs text-slate-500">Automatically remind members before the due date.</p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              :aria-checked="autoReminder"
-              class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition"
-              :class="autoReminder ? 'bg-emerald-500' : 'bg-slate-300'"
-              @click="autoReminder = !autoReminder"
-            >
-              <span
-                class="inline-block h-4 w-4 transform rounded-full bg-white transition"
-                :class="autoReminder ? 'translate-x-6' : 'translate-x-1'"
-              />
-            </button>
-          </div>
-
-          <Transition name="expand">
-            <div v-if="autoReminder" class="mt-3">
-              <label for="reminder-frequency" class="mb-1.5 block text-sm font-medium text-slate-700">Remind</label>
-              <select
-                id="reminder-frequency"
-                v-model="reminderFrequency"
-                class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 transition focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/30"
-              >
-                <option v-for="opt in reminderOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-              </select>
-            </div>
-          </Transition>
         </div>
       </div>
 
@@ -620,13 +876,15 @@ function handleSubmit() {
           :disabled="loading"
           class="rounded-full bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-70"
         >
-          {{ loading ? 'Saving…' : 'Create Bill' }}
+          {{ loading ? 'Saving…' : (billType === 'personal' ? 'Create Personal Debt' : 'Create Group Bill') }}
         </button>
       </div>
     </form>
   </Modal>
 
   <CategoryFormModal v-model="showCategoryModal" type="bill" @created="handleCategoryCreated" />
+
+  <ItemFormModal v-model="showItemModal" type="bill" @created="handleItemCreated" />
 
   <CustomSplitModal
     v-model="showCustomSplitModal"

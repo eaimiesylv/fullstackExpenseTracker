@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::create('group_members', function (Blueprint $table) {
             $table->ulid('id')->primary();
             $table->foreignUlid('group_id')->constrained('groups')->cascadeOnDelete();
-            $table->foreignUlid('user_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignUlid('user_id')->nullable()->constrained('users')->nullOnDelete(); 
             $table->string('fullname');
             $table->string('phone_number')->nullable();
             $table->string('email')->nullable();

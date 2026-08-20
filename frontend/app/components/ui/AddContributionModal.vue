@@ -48,13 +48,14 @@ async function loadMembersAndUsers() {
 
     if (props.groupId) {
       try {
-        const groupRes: any = await api.get(`groups/${props.groupId}`)
-        const members = groupRes?.data?.members || groupRes?.members || []
+        const memberRes: any = await api.get(`groups/${props.groupId}/members`)
+        const members = Array.isArray(memberRes) ? memberRes : (memberRes?.data || [])
         for (const m of members) {
-          if (m.user_id && m.user_id !== me.id) {
+          const uId = m.user_id || m.id
+          if (uId && String(uId) !== String(me.id)) {
             userList.push({
-              id: m.user_id,
-              name: m.user?.fullname || m.name || m.email,
+              id: uId,
+              name: m.fullname || m.user?.fullname || m.email || 'Group Member',
               email: m.email,
             })
           }

@@ -18,6 +18,8 @@ class Need extends Model
         'name',
         'purpose',
         'type',
+        'visibility_type',
+        'visible_user_ids',
         'amount',
         'category_id',
         'start_date',
@@ -30,6 +32,7 @@ class Need extends Model
     protected $casts = [
         'amount' => 'decimal:2',
         'allow_member_contribution' => 'boolean',
+        'visible_user_ids' => 'array',
         'start_date' => 'date:Y-m-d',
         'end_date' => 'date:Y-m-d',
     ];

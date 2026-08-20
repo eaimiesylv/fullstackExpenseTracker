@@ -7,12 +7,13 @@ import { useApi } from '~/composables/useApi'
 definePageMeta({
   middleware: ['auth'],
   title: 'Needs',
-  subtitle: 'Set limits and track what you have left.',
+  subtitle: 'Set limits, state your purposes, and track what you have left in tabular view.',
 })
 
 interface NeedItem {
   id: string
   name: string
+  purpose?: string | null
   type: 'personal' | 'group'
   amount: string | number
   status: string
@@ -44,6 +45,10 @@ const deletingNeed = ref<NeedItem | null>(null)
 const deleting = ref(false)
 const deleteErrorMessage = ref<string | null>(null)
 
+// Read Purpose Modal state
+const showPurposeModal = ref(false)
+const viewingPurposeNeed = ref<NeedItem | null>(null)
+
 const needs = ref<NeedItem[]>([])
 const loadingNeeds = ref(true)
 
@@ -51,12 +56,13 @@ const loadingNeeds = ref(true)
 const currentPage = ref(1)
 const lastPage = ref(1)
 const totalNeeds = ref(0)
-const perPage = ref(9)
+const perPage = ref(10)
 
 // Filters state
 const typeFilter = ref<'all' | 'personal' | 'group'>('all')
 const statusFilter = ref<'all' | 'pending' | 'completed' | 'expired' | 'closed'>('all')
 const groupFilter = ref<string>('all')
+const searchQuery = ref('')
 
 const userGroups = ref<GroupOption[]>([])
 const loadingUserGroups = ref(false)
@@ -86,15 +92,10 @@ async function fetchNeeds(page = 1) {
     queryParams.set('page', String(page))
     queryParams.set('per_page', String(perPage.value))
 
-    if (typeFilter.value !== 'all') {
-      queryParams.set('type', typeFilter.value)
-    }
-    if (statusFilter.value !== 'all') {
-      queryParams.set('status', statusFilter.value)
-    }
-    if (groupFilter.value !== 'all') {
-      queryParams.set('group_id', groupFilter.value)
-    }
+    if (typeFilter.value !== 'all') queryParams.set('type', typeFilter.value)
+    if (statusFilter.value !== 'all') queryParams.set('status', statusFilter.value)
+    if (groupFilter.value !== 'all') queryParams.set('group_id', groupFilter.value)
+    if (searchQuery.value.trim()) queryParams.set('search', searchQuery.value.trim())
 
     const res: any = await api.get(`needs?${queryParams.toString()}`)
     needs.value = Array.isArray(res) ? res : (res?.data || [])
@@ -103,13 +104,21 @@ async function fetchNeeds(page = 1) {
       currentPage.value = res.meta.current_page || 1
       lastPage.value = res.meta.last_page || 1
       totalNeeds.value = res.meta.total || 0
-      perPage.value = res.meta.per_page || 9
+      perPage.value = res.meta.per_page || 10
     }
   } catch (error) {
     console.error('Failed to fetch needs:', error)
   } finally {
     loadingNeeds.value = false
   }
+}
+
+let searchDebounce: any = null
+function onSearchInput() {
+  clearTimeout(searchDebounce)
+  searchDebounce = setTimeout(() => {
+    fetchNeeds(1)
+  }, 300)
 }
 
 watch([typeFilter, statusFilter, groupFilter], () => {
@@ -148,6 +157,7 @@ function openEditModal(need: NeedItem) {
   editingNeed.value = {
     id: need.id,
     name: need.name,
+    purpose: need.purpose,
     itemId: need.item_id || need.item?.id,
     type: need.type,
     amount: need.amount,
@@ -161,6 +171,11 @@ function openEditModal(need: NeedItem) {
   errorMessage.value = null
   fieldErrors.value = null
   showModal.value = true
+}
+
+function openPurposeModal(need: NeedItem) {
+  viewingPurposeNeed.value = need
+  showPurposeModal.value = true
 }
 
 async function handleSave(payload: NeedPayload) {
@@ -236,6 +251,11 @@ async function updateNeedStatus(need: NeedItem, newStatus: string) {
   }
 }
 
+function truncateGroup(name?: string, max = 20) {
+  if (!name) return ''
+  return name.length > max ? name.slice(0, max) + '…' : name
+}
+
 function getStatusBadgeClass(status?: string) {
   const st = (status || 'pending').toLowerCase()
   switch (st) {
@@ -269,7 +289,7 @@ function formatDate(dateStr?: string | null) {
     <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <h2 class="text-xl font-bold text-slate-900">Your Needs</h2>
-        <p class="text-sm text-slate-500">Track and manage essential personal and group requirements.</p>
+        <p class="text-sm text-slate-500">View and manage all essential personal and group needs in high-density table format.</p>
       </div>
       <button
         type="button"
@@ -279,21 +299,21 @@ function formatDate(dateStr?: string | null) {
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
           <path d="M12 5v14M5 12h14" />
         </svg>
-        Create Need
+        Create Needs
       </button>
     </div>
 
-    <!-- Summary Stats Bar -->
+    <!-- Summary Stats Overview Bar -->
     <div v-if="!loadingNeeds && needs.length > 0" class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-      <div class="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-        <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Page Amount Total</span>
+      <div class="rounded-2xl border border-slate-100 bg-white p-4 shadow-xs">
+        <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Page Total Amount</span>
         <div class="mt-1 flex items-baseline justify-between">
           <span class="text-2xl font-bold text-slate-900">{{ formatCurrency(totalAmount) }}</span>
           <span class="text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{{ totalNeeds || needs.length }} items</span>
         </div>
       </div>
-      <div class="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-        <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Personal</span>
+      <div class="rounded-2xl border border-slate-100 bg-white p-4 shadow-xs">
+        <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Personal Needs</span>
         <div class="mt-1 flex items-baseline justify-between">
           <span class="text-2xl font-bold text-indigo-600">{{ formatCurrency(personalAmount) }}</span>
           <span class="text-xs font-medium text-slate-500">
@@ -301,8 +321,8 @@ function formatDate(dateStr?: string | null) {
           </span>
         </div>
       </div>
-      <div class="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-        <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Group</span>
+      <div class="rounded-2xl border border-slate-100 bg-white p-4 shadow-xs">
+        <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Group Needs</span>
         <div class="mt-1 flex items-baseline justify-between">
           <span class="text-2xl font-bold text-emerald-600">{{ formatCurrency(groupAmount) }}</span>
           <span class="text-xs font-medium text-slate-500">
@@ -312,50 +332,62 @@ function formatDate(dateStr?: string | null) {
       </div>
     </div>
 
-    <!-- Filters Toolbar (Type, Status, & Group Filter) -->
+    <!-- Toolbar Filters Bar -->
     <div class="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50/80 p-2.5 border border-slate-100">
-      <div class="flex items-center gap-1">
-        <button
-          type="button"
-          class="rounded-xl px-3 py-1.5 text-xs font-semibold transition"
-          :class="typeFilter === 'all' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'"
-          @click="typeFilter = 'all'"
-        >
-          All Types
-        </button>
-        <button
-          type="button"
-          class="rounded-xl px-3 py-1.5 text-xs font-semibold transition"
-          :class="typeFilter === 'personal' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'"
-          @click="typeFilter = 'personal'"
-        >
-          Personal
-        </button>
-        <button
-          type="button"
-          class="rounded-xl px-3 py-1.5 text-xs font-semibold transition"
-          :class="typeFilter === 'group' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'"
-          @click="typeFilter = 'group'"
-        >
-          Group
-        </button>
+      <div class="flex items-center gap-2 flex-1 min-w-[200px]">
+        <div class="relative w-full sm:w-64">
+          <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-400">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.3-4.3" />
+            </svg>
+          </span>
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Search need name or purpose…"
+            class="w-full rounded-xl border border-slate-200 bg-white py-1.5 pl-9 pr-3 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+            @input="onSearchInput"
+          />
+        </div>
+
+        <div class="hidden sm:flex items-center gap-1 border-l border-slate-200 pl-2">
+          <button
+            type="button"
+            class="rounded-xl px-3 py-1.5 text-xs font-semibold transition"
+            :class="typeFilter === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-900'"
+            @click="typeFilter = 'all'"
+          >
+            All Types
+          </button>
+          <button
+            type="button"
+            class="rounded-xl px-3 py-1.5 text-xs font-semibold transition"
+            :class="typeFilter === 'personal' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-900'"
+            @click="typeFilter = 'personal'"
+          >
+            Personal
+          </button>
+          <button
+            type="button"
+            class="rounded-xl px-3 py-1.5 text-xs font-semibold transition"
+            :class="typeFilter === 'group' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-900'"
+            @click="typeFilter = 'group'"
+          >
+            Group
+          </button>
+        </div>
       </div>
 
       <div class="flex items-center gap-2">
-        <!-- Group Filter Dropdown (User's Groups Only) -->
-        <div class="flex items-center gap-1.5">
-          <label for="group-filter" class="text-xs font-medium text-slate-500 hidden sm:inline">Group:</label>
-          <select
-            id="group-filter"
-            v-model="groupFilter"
-            class="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-          >
-            <option value="all">All Belonged Groups</option>
-            <option v-for="g in userGroups" :key="g.id" :value="g.id">{{ g.name }}</option>
-          </select>
-        </div>
+        <select
+          v-model="groupFilter"
+          class="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+        >
+          <option value="all">All Belonged Groups</option>
+          <option v-for="g in userGroups" :key="g.id" :value="g.id" :title="g.name">{{ truncateGroup(g.name) }}</option>
+        </select>
 
-        <!-- Status Filter Dropdown -->
         <select
           v-model="statusFilter"
           class="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
@@ -369,24 +401,26 @@ function formatDate(dateStr?: string | null) {
       </div>
     </div>
 
-    <!-- Loading State -->
-    <div v-if="loadingNeeds" class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <div v-for="i in 3" :key="i" class="h-48 animate-pulse rounded-2xl border border-slate-100 bg-slate-50/50 p-5" />
+    <!-- Loading Table State -->
+    <div v-if="loadingNeeds" class="rounded-2xl border border-slate-100 bg-white p-6 shadow-xs">
+      <div class="space-y-4">
+        <div v-for="i in 5" :key="i" class="h-10 w-full animate-pulse rounded-xl bg-slate-100" />
+      </div>
     </div>
 
-    <!-- Empty State -->
+    <!-- Empty Table State -->
     <div
-      v-else-if="totalNeeds === 0 && groupFilter === 'all' && typeFilter === 'all' && statusFilter === 'all'"
-      class="flex h-full min-h-[350px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 p-8 text-center"
+      v-else-if="totalNeeds === 0 && groupFilter === 'all' && typeFilter === 'all' && statusFilter === 'all' && !searchQuery"
+      class="flex h-full min-h-[350px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 p-8 text-center bg-white"
     >
       <div class="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
         </svg>
       </div>
-      <h3 class="text-base font-semibold text-slate-900">No Needs Yet</h3>
+      <h3 class="text-base font-semibold text-slate-900">No Needs Recorded</h3>
       <p class="mt-1 max-w-sm text-sm text-slate-500">
-        Create your first need to set up limits and monitor your upcoming essential expenses.
+        Create essential needs to set up limits, state their purpose, and monitor execution.
       </p>
       <button
         type="button"
@@ -396,112 +430,144 @@ function formatDate(dateStr?: string | null) {
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
           <path d="M12 5v14M5 12h14" />
         </svg>
-        Create Need
+        Create Needs
       </button>
     </div>
 
-    <!-- Filter Empty State -->
-    <div
-      v-else-if="needs.length === 0"
-      class="flex min-h-[250px] flex-col items-center justify-center rounded-2xl border border-slate-100 bg-slate-50/50 p-6 text-center"
-    >
-      <p class="text-sm font-medium text-slate-600">No needs match your selected filters.</p>
-      <button
-        type="button"
-        class="mt-3 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
-        @click="typeFilter = 'all'; statusFilter = 'all'; groupFilter = 'all'"
-      >
-        Reset filters
-      </button>
-    </div>
-
-    <!-- Needs List Grid -->
-    <div v-else class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <div
-        v-for="need in needs"
-        :key="need.id"
-        class="group relative flex flex-col justify-between rounded-2xl border border-slate-100 bg-white p-5 shadow-sm transition hover:border-slate-200 hover:shadow-md"
-      >
-        <div>
-          <div class="flex items-start justify-between gap-2">
-            <div>
-              <span
-                v-if="need.category"
-                class="inline-block rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700"
-              >
-                {{ need.category.category_name }}
-              </span>
-              <h3 class="mt-2 text-base font-semibold text-slate-900">{{ need.name }}</h3>
-            </div>
-
-            <div class="flex items-center gap-1">
-              <span
-                class="capitalize rounded-full px-2.5 py-0.5 text-xs font-medium"
-                :class="need.type === 'group' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-600'"
-              >
-                {{ need.type === 'group' ? (need.group?.group_name ? `Group: ${need.group.group_name}` : 'Group') : 'Personal' }}
-              </span>
-            </div>
-          </div>
-
-          <div class="mt-4 flex items-baseline justify-between">
-            <span class="text-2xl font-bold text-slate-900">{{ formatCurrency(need.amount) }}</span>
-          </div>
-        </div>
-
-        <div class="mt-5 border-t border-slate-100 pt-3">
-          <div class="flex items-center justify-between text-xs text-slate-500">
-            <span v-if="need.start_date || need.end_date">
-              {{ formatDate(need.start_date) }} <span v-if="need.end_date">→ {{ formatDate(need.end_date) }}</span>
-            </span>
-            <span v-else>No date limit</span>
-
-            <!-- Status Dropdown Selector -->
-            <div class="relative inline-block">
-              <select
-                :value="need.status || 'pending'"
-                class="appearance-none rounded-full border px-3 py-1 pr-6 text-xs font-semibold cursor-pointer transition focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                :class="getStatusBadgeClass(need.status)"
-                @change="updateNeedStatus(need, ($event.target as HTMLSelectElement).value)"
-              >
-                <option value="pending" class="bg-white text-slate-900">Pending</option>
-                <option value="completed" class="bg-white text-slate-900">Completed</option>
-                <option value="expired" class="bg-white text-slate-900">Expired</option>
-                <option value="close" class="bg-white text-slate-900">Closed</option>
-              </select>
-              <div class="pointer-events-none absolute inset-y-0 right-2 flex items-center">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-                  <path d="m6 9 6 6 6-6" />
-                </svg>
-              </div>
-            </div>
-          </div>
-
-          <!-- Action menu buttons -->
-          <div class="mt-3 flex items-center justify-end gap-2 border-t border-slate-50 pt-2 opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition">
-            <button
-              type="button"
-              class="rounded-lg p-1.5 text-slate-400 hover:bg-slate-50 hover:text-indigo-600 transition"
-              title="Edit Need"
-              @click="openEditModal(need)"
+    <!-- High-Density Data Table Layout -->
+    <div v-else class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-xs">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs">
+          <thead class="border-b border-slate-200/80 bg-slate-50/70 text-slate-500 font-bold uppercase tracking-wider">
+            <tr>
+              <th scope="col" class="py-3.5 pl-5 pr-3">Need Item / Name</th>
+              <th scope="col" class="px-3 py-3.5">Amount</th>
+              <th scope="col" class="px-3 py-3.5">Category</th>
+              <th scope="col" class="px-3 py-3.5">Scope / Type</th>
+              <th scope="col" class="px-3 py-3.5">Date Limit</th>
+              <th scope="col" class="px-3 py-3.5">Status</th>
+              <th scope="col" class="px-3 py-3.5">Purpose</th>
+              <th scope="col" class="py-3.5 pl-3 pr-5 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100 font-medium text-slate-700">
+            <tr
+              v-for="need in needs"
+              :key="need.id"
+              class="transition hover:bg-slate-50/60"
             >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-              </svg>
-            </button>
+              <!-- Need Item / Name -->
+              <td class="py-3.5 pl-5 pr-3">
+                <div class="font-bold text-slate-900 text-xs sm:text-sm">{{ need.name }}</div>
+                <div v-if="need.purpose" class="text-[11px] text-slate-400 line-clamp-1 max-w-xs mt-0.5">
+                  {{ need.purpose }}
+                </div>
+              </td>
 
-            <button
-              type="button"
-              class="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition"
-              title="Delete Need"
-              @click="promptDelete(need)"
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-              </svg>
-            </button>
-          </div>
-        </div>
+              <!-- Amount -->
+              <td class="px-3 py-3.5 font-bold text-slate-900 whitespace-nowrap">
+                {{ formatCurrency(need.amount) }}
+              </td>
+
+              <!-- Category -->
+              <td class="px-3 py-3.5 whitespace-nowrap">
+                <span
+                  v-if="need.category"
+                  class="inline-block rounded-md bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 border border-emerald-200"
+                >
+                  {{ need.category.category_name }}
+                </span>
+                <span v-else class="text-slate-400">—</span>
+              </td>
+
+              <!-- Scope / Type -->
+              <td class="px-3 py-3.5 whitespace-nowrap">
+                <span
+                  class="inline-block rounded-full px-2.5 py-0.5 text-[11px] font-semibold border capitalize"
+                  :class="need.type === 'group' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-slate-100 text-slate-600 border-slate-200'"
+                  :title="need.group?.group_name || ''"
+                >
+                  {{ need.type === 'group' ? (need.group?.group_name ? `Group: ${truncateGroup(need.group.group_name)}` : 'Group') : 'Personal' }}
+                </span>
+              </td>
+
+              <!-- Date Limit -->
+              <td class="px-3 py-3.5 whitespace-nowrap text-slate-500">
+                <span v-if="need.start_date || need.end_date">
+                  {{ formatDate(need.start_date) }} <span v-if="need.end_date">→ {{ formatDate(need.end_date) }}</span>
+                </span>
+                <span v-else class="text-slate-400">No date limit</span>
+              </td>
+
+              <!-- Status Interactive Selector -->
+              <td class="px-3 py-3.5 whitespace-nowrap">
+                <div class="relative inline-block">
+                  <select
+                    :value="need.status || 'pending'"
+                    class="appearance-none rounded-full border px-3 py-1 pr-6 text-[11px] font-semibold cursor-pointer transition focus:outline-none focus:ring-2 focus:ring-indigo-500/20 capitalize"
+                    :class="getStatusBadgeClass(need.status)"
+                    @change="updateNeedStatus(need, ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="pending" class="bg-white text-slate-900">Pending</option>
+                    <option value="completed" class="bg-white text-slate-900">Completed</option>
+                    <option value="expired" class="bg-white text-slate-900">Expired</option>
+                    <option value="close" class="bg-white text-slate-900">Closed</option>
+                  </select>
+                  <div class="pointer-events-none absolute inset-y-0 right-2 flex items-center">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </div>
+                </div>
+              </td>
+
+              <!-- Purpose / Read Purpose Link -->
+              <td class="px-3 py-3.5 whitespace-nowrap">
+                <button
+                  v-if="need.purpose"
+                  type="button"
+                  class="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 transition bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-100"
+                  @click="openPurposeModal(need)"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="16" x2="12" y2="12" />
+                    <line x1="12" y1="8" x2="12.01" y2="8" />
+                  </svg>
+                  Read Purpose
+                </button>
+                <span v-else class="text-slate-400">—</span>
+              </td>
+
+              <!-- Actions -->
+              <td class="py-3.5 pl-3 pr-5 text-right whitespace-nowrap">
+                <div class="flex items-center justify-end gap-1.5">
+                  <button
+                    type="button"
+                    class="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-indigo-600 transition"
+                    title="Edit Need"
+                    @click="openEditModal(need)"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                      <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                    </svg>
+                  </button>
+
+                  <button
+                    type="button"
+                    class="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition"
+                    title="Delete Need"
+                    @click="promptDelete(need)"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                      <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    </svg>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -525,6 +591,39 @@ function formatDate(dateStr?: string | null) {
       :server-errors="fieldErrors"
       @submit="handleSave"
     />
+
+    <!-- Read Purpose Modal -->
+    <Modal
+      v-model="showPurposeModal"
+      :title="viewingPurposeNeed?.name || 'Need Purpose'"
+      subtitle="Stated purpose and justification for this need requirement."
+    >
+      <div class="space-y-4">
+        <div v-if="viewingPurposeNeed" class="space-y-3">
+          <div class="flex items-center justify-between rounded-xl bg-slate-50 p-3">
+            <span class="text-xs font-semibold text-slate-500">Amount</span>
+            <span class="text-base font-bold text-slate-900">{{ formatCurrency(viewingPurposeNeed.amount) }}</span>
+          </div>
+
+          <div>
+            <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Purpose Statement</span>
+            <p class="mt-1 text-sm text-slate-700 rounded-xl bg-indigo-50/50 border border-indigo-100 p-4 leading-relaxed whitespace-pre-wrap">
+              {{ viewingPurposeNeed.purpose || 'No purpose specified for this need.' }}
+            </p>
+          </div>
+        </div>
+
+        <div class="flex justify-end border-t border-slate-100 pt-4">
+          <button
+            type="button"
+            class="rounded-full bg-slate-100 px-5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200 transition"
+            @click="showPurposeModal = false"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </Modal>
 
     <!-- Delete Confirmation Modal -->
     <Modal

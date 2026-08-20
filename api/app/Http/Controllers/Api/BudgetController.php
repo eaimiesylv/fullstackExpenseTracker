@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Helpers\GroupPermissionHelper;
 use App\Http\Controllers\Controller;
 use App\Models\Budget;
 use App\Models\BudgetItem;
 use App\Models\Contribution;
+use App\Models\Expense;
 use App\Models\GroupMember;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -213,11 +216,18 @@ class BudgetController extends Controller
         $scope = $validated['type'] ?? $validated['scope'] ?? 'personal';
         $groupId = $validated['groupId'] ?? $validated['group_id'] ?? null;
 
-        if ($scope === 'group' && ! $groupId) {
-            return response()->json([
-                'message' => 'Group is required when scope is group.',
-                'errors' => ['groupId' => ['Select a group']],
-            ], 422);
+        if ($scope === 'group') {
+            if (! $groupId) {
+                return response()->json([
+                    'message' => 'Group is required when scope is group.',
+                    'errors' => ['groupId' => ['Select a group']],
+                ], 422);
+            }
+            if (! GroupPermissionHelper::canCreate($request->user(), $groupId)) {
+                return response()->json([
+                    'message' => 'Forbidden: Viewer access level cannot create group budgets.',
+                ], 403);
+            }
         }
 
         $trackContributions = $validated['allowMemberContribution'] ?? $validated['allow_member_contribution'] ?? false;
@@ -357,6 +367,10 @@ class BudgetController extends Controller
             return response()->json(['success' => false, 'message' => 'Budget not found or access denied.'], 404);
         }
 
+        if (! GroupPermissionHelper::canUpdate($user, $budget->group_id, $budget->owner_id)) {
+            return response()->json(['success' => false, 'message' => 'Forbidden: You do not have permission to update this group budget.'], 403);
+        }
+
         $validated = $request->validate([
             'name' => ['nullable', 'string', 'max:255'],
             'budget_name' => ['nullable', 'string', 'max:255'],
@@ -405,13 +419,18 @@ class BudgetController extends Controller
     public function destroy(Request $request, string $id): JsonResponse
     {
         $user = $request->user();
-        $budget = Budget::where('id', $id)
-            ->where('owner_id', $user->id)
-            ->first();
+        $budget = Budget::where('id', $id)->first();
 
         if (! $budget) {
-            return response()->json(['success' => false, 'message' => 'Only budget owners can delete this budget.'], 403);
+            return response()->json(['success' => false, 'message' => 'Budget not found.'], 404);
         }
+
+        if (! GroupPermissionHelper::canDelete($user, $budget->group_id, $budget->owner_id)) {
+            return response()->json(['success' => false, 'message' => 'Forbidden: Only the budget owner or members with Full Access can delete this budget.'], 403);
+        }
+
+        // Ensure disassociation of expenses linked to this budget
+        Expense::where('budget_id', $budget->id)->update(['budget_id' => null]);
 
         $budget->delete();
 

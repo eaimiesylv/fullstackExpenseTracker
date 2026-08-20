@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import FormModal, { type FormField } from '~/components/ui/FormModal.vue'
 import { useApi } from '~/composables/useApi'
+import { useAuthStore } from '~/stores/auth'
 
 interface HeaderAction {
   label: string
@@ -10,10 +11,30 @@ interface HeaderAction {
 }
 
 const route = useRoute()
+const authStore = useAuthStore()
 
 const title = computed(() => (route.meta.title as string) || 'Dashboard')
 const subtitle = computed(() => (route.meta.subtitle as string) || '')
 const headerAction = computed(() => route.meta.headerAction as HeaderAction | undefined)
+
+const userName = computed(() => {
+  return authStore.user?.fullname || authStore.user?.email || 'User'
+})
+
+onMounted(async () => {
+  if (authStore.isAuthenticated && !authStore.user) {
+    try {
+      const api = useApi()
+      const res: any = await api.get('user')
+      const userData = res?.data || res
+      if (userData?.fullname || userData?.id) {
+        authStore.user = userData
+      }
+    } catch (err) {
+      console.error('Failed to fetch authenticated user profile:', err)
+    }
+  }
+})
 
 const isGenericAction = computed(() => {
   return !!(headerAction.value?.endpoint && headerAction.value?.fields && headerAction.value.fields.length > 0)
@@ -69,7 +90,7 @@ async function handleCreate(values: Record<string, string>) {
       <DashboardHeader
         :title="title"
         :subtitle="subtitle"
-        user-name="Okom Emmanuel"
+        :user-name="userName"
         :has-notifications="true"
         :action-label="isGenericAction ? (headerAction?.label ?? '') : ''"
         @action-click="openModal"

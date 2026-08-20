@@ -215,8 +215,21 @@ watch(isOpen, (open) => {
 
 watch(() => props.serverMessage, (msg) => (localServerMessage.value = msg))
 watch(() => props.serverErrors, (errs) => {
-  localServerErrors.value = errs ? { ...errs } : null
-  if (errs && Object.keys(errs).length) localServerMessage.value = null
+  if (!errs) {
+    localServerErrors.value = null
+    return
+  }
+  const mapped: Record<string, string> = {}
+  for (const [key, val] of Object.entries(errs)) {
+    const message = Array.isArray(val) ? String(val[0]) : String(val)
+    mapped[key] = message
+    if (key === 'category_id') mapped['categoryId'] = message
+    if (key === 'group_id') mapped['groupId'] = message
+    if (key === 'start_date') mapped['startDate'] = message
+    if (key === 'end_date') mapped['endDate'] = message
+    if (key === 'budget_name') mapped['name'] = message
+  }
+  localServerErrors.value = mapped
 })
 
 function clearServerError(field: string) {
@@ -225,6 +238,11 @@ function clearServerError(field: string) {
   const next = { ...localServerErrors.value }
   delete next[field]
   localServerErrors.value = Object.keys(next).length ? next : null
+}
+
+function truncateName(str: string, max = 20) {
+  if (!str) return ''
+  return str.length > max ? str.slice(0, max) + '…' : str
 }
 
 function validate() {
@@ -272,7 +290,7 @@ function handleSubmit() {
   <Modal v-model="isOpen" title="Create Budget" subtitle="Set up a personal or shared budget.">
     <form class="space-y-5" novalidate @submit.prevent="handleSubmit">
       <div
-        v-if="localServerMessage && !localServerErrors"
+        v-if="localServerMessage"
         class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
       >
         {{ localServerMessage }}

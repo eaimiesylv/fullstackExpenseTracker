@@ -250,6 +250,11 @@ function formatDate(dateStr?: string | null) {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+function truncateGroup(name?: string, max = 20) {
+  if (!name) return ''
+  return name.length > max ? name.slice(0, max) + '…' : name
+}
+
 function getStatusBadgeClass(status?: string) {
   const st = (status || 'pending').toLowerCase()
   switch (st) {
@@ -377,7 +382,7 @@ function getStatusBadgeClass(status?: string) {
           class="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
         >
           <option value="all">All Groups</option>
-          <option v-for="g in userGroups" :key="g.id" :value="g.id">{{ g.name }}</option>
+          <option v-for="g in userGroups" :key="g.id" :value="g.id" :title="g.name">{{ truncateGroup(g.name) }}</option>
         </select>
 
         <!-- Category Filter Dropdown -->
@@ -476,8 +481,9 @@ function getStatusBadgeClass(status?: string) {
               <span
                 class="rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide border"
                 :class="budget.scope === 'group' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-slate-100 text-slate-600 border-slate-200'"
+                :title="budget.group?.group_name || ''"
               >
-                {{ budget.scope === 'group' ? (budget.group?.group_name ? `Group: ${budget.group.group_name}` : 'Group') : 'Personal' }}
+                {{ budget.scope === 'group' ? (budget.group?.group_name ? `Group: ${truncateGroup(budget.group.group_name)}` : 'Group') : 'Personal' }}
               </span>
             </div>
           </div>

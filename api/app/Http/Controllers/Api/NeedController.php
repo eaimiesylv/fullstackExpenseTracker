@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Helpers\GroupPermissionHelper;
 use App\Http\Controllers\Controller;
 use App\Models\GroupMember;
 use App\Models\Need;
@@ -65,9 +66,22 @@ class NeedController extends Controller
 
         $paginated = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
+        // Filter items for visibility restrictions (selected_individuals)
+        $items = collect($paginated->items())->filter(function ($need) use ($user) {
+            if ($need->type === 'group' && ($need->visibility_type ?? 'all_members') === 'selected_individuals') {
+                if ((string) $need->user_id === (string) $user->id) return true;
+                $allowed = is_array($need->visible_user_ids) ? $need->visible_user_ids : json_decode($need->visible_user_ids ?? '[]', true);
+                if (is_array($allowed) && (in_array((string) $user->id, $allowed) || in_array((string) $user->email, $allowed))) {
+                    return true;
+                }
+                return false;
+            }
+            return true;
+        })->values();
+
         return response()->json([
             'success' => true,
-            'data' => $paginated->items(),
+            'data' => $items,
             'meta' => [
                 'current_page' => $paginated->currentPage(),
                 'last_page' => $paginated->lastPage(),
@@ -141,9 +155,9 @@ class NeedController extends Controller
                     ], 422);
                 }
 
-                if (! $this->checkGroupPermission($user, $groupId)) {
+                if (! GroupPermissionHelper::canCreate($user, $groupId)) {
                     return response()->json([
-                        'message' => 'You do not have permission to add group needs for this group.',
+                        'message' => 'Forbidden: Viewer access level cannot create group needs.',
                     ], 403);
                 }
             }
@@ -156,12 +170,17 @@ class NeedController extends Controller
                 ], 422);
             }
 
+            $visibilityType = $itemData['visibilityType'] ?? $itemData['visibility_type'] ?? 'all_members';
+            $visibleUserIds = $itemData['visibleUserIds'] ?? $itemData['visible_user_ids'] ?? null;
+
             $need = Need::create([
                 'user_id' => $user->id,
                 'name' => $name,
                 'purpose' => ! empty($itemData['purpose']) ? trim($itemData['purpose']) : null,
                 'item_id' => $itemData['itemId'] ?? $itemData['item_id'] ?? null,
                 'type' => $type,
+                'visibility_type' => $visibilityType,
+                'visible_user_ids' => is_array($visibleUserIds) ? json_encode($visibleUserIds) : $visibleUserIds,
                 'amount' => $itemData['amount'] ?? 0,
                 'category_id' => $categoryId,
                 'start_date' => $itemData['startDate'] ?? $itemData['start_date'] ?? null,
@@ -235,13 +254,10 @@ class NeedController extends Controller
             return response()->json(['success' => false, 'message' => 'Need not found.'], 404);
         }
 
-        // If need is a group need, verify group member permission
-        if ($need->type === 'group' && $need->group_id && $need->user_id !== $user->id) {
-            if (! $this->checkGroupPermission($user, $need->group_id)) {
-                return response()->json([
-                    'message' => 'You do not have permission to modify this group need.',
-                ], 403);
-            }
+        if (! GroupPermissionHelper::canUpdate($user, $need->group_id, $need->user_id)) {
+            return response()->json([
+                'message' => 'Forbidden: You do not have permission to modify this group need.',
+            ], 403);
         }
 
         $validated = $request->validate([
@@ -320,12 +336,10 @@ class NeedController extends Controller
             return response()->json(['success' => false, 'message' => 'Need not found.'], 404);
         }
 
-        if ($need->type === 'group' && $need->group_id && $need->user_id !== $user->id) {
-            if (! $this->checkGroupPermission($user, $need->group_id)) {
-                return response()->json([
-                    'message' => 'You do not have permission to delete this group need.',
-                ], 403);
-            }
+        if (! GroupPermissionHelper::canDelete($user, $need->group_id, $need->user_id)) {
+            return response()->json([
+                'message' => 'Forbidden: Only the need owner or members with Full Access can delete this group need.',
+            ], 403);
         }
 
         $need->delete();

@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Helpers\GroupPermissionHelper;
 use App\Http\Controllers\Controller;
 use App\Models\Bill;
 use App\Models\BillParticipant;
 use App\Models\BillPayment;
 use App\Models\GroupMember;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -39,6 +41,9 @@ class BillController extends Controller
             ->withSum('participants as total_collected', 'amount_paid')
             ->where(function ($q) use ($user) {
                 $q->where('owner_id', $user->id)
+                  ->orWhereHas('participants', function ($pq) use ($user) {
+                      $pq->where('user_id', $user->id);
+                  })
                   ->orWhereHas('group.members', function ($mq) use ($user) {
                       $mq->where('status', 'active')
                         ->where(function ($sq) use ($user) {
@@ -147,7 +152,7 @@ class BillController extends Controller
     }
 
     /**
-     * Store a new bill with split participants.
+     * Store a new bill (Group Debt or Personal Debt) with split & guest participants.
      */
     public function store(Request $request): JsonResponse
     {
@@ -156,7 +161,7 @@ class BillController extends Controller
         $validated = $request->validate([
             'name' => ['nullable', 'string', 'max:255'],
             'title' => ['nullable', 'string', 'max:255'],
-            'amount' => ['required', 'numeric', 'min:0'],
+            'amount' => ['nullable', 'numeric', 'min:0'],
             'dueDate' => ['nullable', 'date'],
             'due_date' => ['nullable', 'date'],
             'startDate' => ['nullable', 'date'],
@@ -170,6 +175,8 @@ class BillController extends Controller
             'splitMethod' => ['nullable', 'string', 'in:equal,fixed,custom'],
             'split_type' => ['nullable', 'string', 'in:equal,fixed,custom'],
             'customSplit' => ['nullable', 'array'],
+            'personalDebtors' => ['nullable', 'array'],
+            'guestDebtors' => ['nullable', 'array'],
             'allowPartialPayment' => ['nullable', 'boolean'],
             'allow_partial_payment' => ['nullable', 'boolean'],
             'description' => ['nullable', 'string', 'max:1000'],
@@ -194,11 +201,18 @@ class BillController extends Controller
         $scope = $validated['billType'] ?? $validated['scope'] ?? 'personal';
         $groupId = $validated['groupId'] ?? $validated['group_id'] ?? null;
 
-        if ($scope === 'group' && ! $groupId) {
-            return response()->json([
-                'message' => 'Group is required when bill type is group.',
-                'errors' => ['groupId' => ['Select a group']],
-            ], 422);
+        if ($scope === 'group') {
+            if (! $groupId) {
+                return response()->json([
+                    'message' => 'Group is required when bill scope is group.',
+                    'errors' => ['groupId' => ['Select a group']],
+                ], 422);
+            }
+            if (! GroupPermissionHelper::canCreate($user, $groupId)) {
+                return response()->json([
+                    'message' => 'Forbidden: Viewer access level cannot create group bills.',
+                ], 403);
+            }
         }
 
         $dueDate = $validated['dueDate'] ?? $validated['due_date'] ?? null;
@@ -206,13 +220,26 @@ class BillController extends Controller
         $splitType = $validated['splitMethod'] ?? $validated['split_type'] ?? 'equal';
         $allowPartial = $validated['allowPartialPayment'] ?? $validated['allow_partial_payment'] ?? true;
 
+        $personalDebtors = $validated['personalDebtors'] ?? [];
+        $guestDebtors = $validated['guestDebtors'] ?? [];
+
+        // Calculate total bill amount if personal debtors are passed
+        $totalAmount = (float) ($validated['amount'] ?? 0);
+        if ($scope === 'personal' && ! empty($personalDebtors)) {
+            $sum = 0;
+            foreach ($personalDebtors as $pd) {
+                $sum += (float) ($pd['amount'] ?? 0);
+            }
+            if ($sum > 0) $totalAmount = $sum;
+        }
+
         $bill = Bill::create([
             'owner_id' => $user->id,
             'group_id' => $scope === 'group' ? $groupId : null,
             'category_id' => $categoryId,
             'title' => $title,
             'description' => $validated['description'] ?? null,
-            'amount' => $validated['amount'],
+            'amount' => $totalAmount,
             'currency' => 'NGN',
             'scope' => $scope,
             'split_type' => $splitType,
@@ -222,8 +249,49 @@ class BillController extends Controller
             'status' => 'no_payment',
         ]);
 
-        // Create participant split records if group bill
-        if ($scope === 'group' && $groupId) {
+        if ($scope === 'personal') {
+            if (! empty($personalDebtors)) {
+                foreach ($personalDebtors as $pd) {
+                    $pAmount = (float) ($pd['amount'] ?? 0);
+                    $pType = $pd['type'] ?? 'guest';
+                    $userId = $pd['user_id'] ?? $pd['userId'] ?? null;
+                    $pName = trim($pd['name'] ?? '');
+
+                    if ($pType === 'registered' && $userId) {
+                        $regUser = User::find($userId);
+                        BillParticipant::create([
+                            'bill_id' => $bill->id,
+                            'user_id' => $userId,
+                            'participant_name' => $regUser ? $regUser->fullname : ($pName ?: 'Registered User'),
+                            'is_guest' => false,
+                            'amount_assigned' => $pAmount,
+                            'amount_paid' => 0,
+                            'status' => 'no_payment',
+                        ]);
+                    } else {
+                        BillParticipant::create([
+                            'bill_id' => $bill->id,
+                            'participant_name' => $pName ?: 'Guest Debtor',
+                            'is_guest' => true,
+                            'amount_assigned' => $pAmount,
+                            'amount_paid' => 0,
+                            'status' => 'no_payment',
+                        ]);
+                    }
+                }
+            } else {
+                // Personal bill fallback — single participant record for owner
+                BillParticipant::create([
+                    'bill_id' => $bill->id,
+                    'user_id' => $user->id,
+                    'participant_name' => $user->fullname,
+                    'is_guest' => false,
+                    'amount_assigned' => $totalAmount,
+                    'amount_paid' => 0,
+                    'status' => 'no_payment',
+                ]);
+            }
+        } elseif ($scope === 'group' && $groupId) {
             $groupMembers = GroupMember::where('group_id', $groupId)
                 ->where('status', 'active')
                 ->with('user:id,fullname,email')
@@ -231,7 +299,6 @@ class BillController extends Controller
             $count = $groupMembers->count();
 
             if ($count > 0) {
-                $totalAmount = (float) $validated['amount'];
                 $customSplit = $validated['customSplit'] ?? [];
 
                 foreach ($groupMembers as $gm) {
@@ -256,17 +323,24 @@ class BillController extends Controller
                     ]);
                 }
             }
-        } else {
-            // Personal bill — single participant record for owner
-            BillParticipant::create([
-                'bill_id' => $bill->id,
-                'user_id' => $user->id,
-                'participant_name' => $user->fullname,
-                'is_guest' => false,
-                'amount_assigned' => $validated['amount'],
-                'amount_paid' => 0,
-                'status' => 'no_payment',
-            ]);
+
+            // Create additional guest debtors attached to group bill
+            if (! empty($guestDebtors)) {
+                foreach ($guestDebtors as $gd) {
+                    $gName = trim($gd['name'] ?? '');
+                    $gAmount = (float) ($gd['amount'] ?? 0);
+                    if ($gName && $gAmount > 0) {
+                        BillParticipant::create([
+                            'bill_id' => $bill->id,
+                            'participant_name' => $gName,
+                            'is_guest' => true,
+                            'amount_assigned' => $gAmount,
+                            'amount_paid' => 0,
+                            'status' => 'no_payment',
+                        ]);
+                    }
+                }
+            }
         }
 
         $bill->load(['category:id,category_name', 'group:id,group_name', 'participants.user:id,fullname,email']);
@@ -496,12 +570,14 @@ class BillController extends Controller
     public function destroy(Request $request, string $id): JsonResponse
     {
         $user = $request->user();
-        $bill = Bill::where('id', $id)
-            ->where('owner_id', $user->id)
-            ->first();
+        $bill = Bill::where('id', $id)->first();
 
         if (! $bill) {
-            return response()->json(['success' => false, 'message' => 'Only bill owners can delete this bill.'], 403);
+            return response()->json(['success' => false, 'message' => 'Bill not found.'], 404);
+        }
+
+        if (! GroupPermissionHelper::canDelete($user, $bill->group_id, $bill->owner_id)) {
+            return response()->json(['success' => false, 'message' => 'Forbidden: Only the bill owner or members with Full Access can delete this bill.'], 403);
         }
 
         $bill->delete();

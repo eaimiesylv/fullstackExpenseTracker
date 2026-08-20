@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Helpers\GroupPermissionHelper;
 use App\Http\Controllers\Controller;
 use App\Models\Expense;
 use App\Models\GroupMember;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class ExpenseController extends Controller
 {
@@ -105,86 +107,115 @@ class ExpenseController extends Controller
     {
         $user = $request->user();
 
-        $validated = $request->validate([
-            'name' => ['nullable', 'string', 'max:255'],
-            'title' => ['nullable', 'string', 'max:255'],
-            'amount' => ['required', 'numeric', 'min:0.01'],
-            'date' => ['nullable', 'date'],
-            'expense_date' => ['nullable', 'date'],
-            'categoryId' => ['nullable', 'string', 'exists:categories,id'],
-            'category_id' => ['nullable', 'string', 'exists:categories,id'],
-            'budgetId' => ['nullable', 'string', 'exists:budgets,id'],
-            'budget_id' => ['nullable', 'string', 'exists:budgets,id'],
-            'expenseType' => ['nullable', 'string', 'in:personal,group'],
-            'expense_type' => ['nullable', 'string', 'in:personal,group'],
-            'groupId' => ['nullable', 'string', 'exists:groups,id'],
-            'group_id' => ['nullable', 'string', 'exists:groups,id'],
-            'description' => ['nullable', 'string', 'max:1000'],
-            'status' => ['nullable', 'string', 'in:pending,approved,paid,rejected'],
-        ]);
+        // Support bulk array payload (expenses: [...]) or single object payload
+        $rawItems = $request->has('expenses') && is_array($request->input('expenses'))
+            ? $request->input('expenses')
+            : [$request->all()];
 
-        $title = trim($validated['name'] ?? $validated['title'] ?? '');
-        if (! $title) {
+        if (empty($rawItems)) {
+            return response()->json(['message' => 'No expense items provided.'], 422);
+        }
+
+        $createdExpenses = [];
+
+        DB::beginTransaction();
+        try {
+            foreach ($rawItems as $index => $itemData) {
+                $title = trim($itemData['name'] ?? $itemData['title'] ?? '');
+                if (! $title) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => 'Expense title is required.',
+                        'errors' => ["expenses.{$index}.name" => ['Expense title is required']],
+                    ], 422);
+                }
+
+                $categoryId = $itemData['categoryId'] ?? $itemData['category_id'] ?? null;
+                if (! $categoryId) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => 'Category is required.',
+                        'errors' => ["expenses.{$index}.categoryId" => ['Select a category']],
+                    ], 422);
+                }
+
+                $amount = (float) ($itemData['amount'] ?? 0);
+                if ($amount <= 0) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => 'Valid positive amount is required.',
+                        'errors' => ["expenses.{$index}.amount" => ['Amount must be greater than zero']],
+                    ], 422);
+                }
+
+                $budgetLink = $itemData['budgetLink'] ?? ($itemData['budgetId'] || $itemData['budget_id'] ? 'linked' : 'standalone');
+                $budgetId = $itemData['budgetId'] ?? $itemData['budget_id'] ?? null;
+                $expenseType = $itemData['expenseType'] ?? $itemData['expense_type'] ?? ($budgetLink === 'standalone' ? 'personal' : 'personal');
+                $groupId = $itemData['groupId'] ?? $itemData['group_id'] ?? null;
+
+                if ($expenseType === 'group') {
+                    if (! $groupId) {
+                        DB::rollBack();
+                        return response()->json([
+                            'message' => 'Group is required when expense type is group.',
+                            'errors' => ["expenses.{$index}.groupId" => ['Select a group']],
+                        ], 422);
+                    }
+
+                    if (! GroupPermissionHelper::canCreate($user, $groupId)) {
+                        DB::rollBack();
+                        return response()->json([
+                            'message' => 'Forbidden: Viewer access level cannot create group expenses.',
+                        ], 403);
+                    }
+                }
+
+                $expenseDate = $itemData['date'] ?? $itemData['expense_date'] ?? now()->toDateString();
+                $status = strtolower($itemData['status'] ?? 'paid');
+
+                $groupMemberId = null;
+                if ($expenseType === 'group' && $groupId) {
+                    $gm = GroupMember::where('group_id', $groupId)
+                        ->where('user_id', $user->id)
+                        ->first();
+                    if ($gm) $groupMemberId = $gm->id;
+                }
+
+                $expense = Expense::create([
+                    'user_id' => $user->id,
+                    'group_id' => $expenseType === 'group' ? $groupId : null,
+                    'group_member_id' => $groupMemberId,
+                    'budget_id' => $budgetId,
+                    'category_id' => $categoryId,
+                    'title' => $title,
+                    'description' => ! empty($itemData['description']) ? trim($itemData['description']) : null,
+                    'amount' => $amount,
+                    'currency' => 'NGN',
+                    'expense_type' => $expenseType,
+                    'expense_date' => $expenseDate,
+                    'status' => $status,
+                ]);
+
+                $expense->load(['category:id,category_name', 'group:id,group_name', 'budget:id,budget_name']);
+
+                $createdExpenses[] = array_merge($expense->toArray(), [
+                    'name' => $expense->title,
+                    'date' => $expense->expense_date ? $expense->expense_date->toDateString() : null,
+                ]);
+            }
+
+            DB::commit();
+
             return response()->json([
-                'message' => 'Expense title is required.',
-                'errors' => ['name' => ['Expense title is required']],
-            ], 422);
-        }
-
-        $categoryId = $validated['categoryId'] ?? $validated['category_id'] ?? null;
-        if (! $categoryId) {
+                'success' => true,
+                'data' => count($createdExpenses) === 1 ? $createdExpenses[0] : $createdExpenses,
+            ], 201);
+        } catch (\Exception $e) {
+            DB::rollBack();
             return response()->json([
-                'message' => 'Category is required.',
-                'errors' => ['categoryId' => ['Select a category']],
-            ], 422);
+                'message' => 'Failed to save expense(s): ' . $e->getMessage(),
+            ], 500);
         }
-
-        $expenseType = $validated['expenseType'] ?? $validated['expense_type'] ?? 'personal';
-        $groupId = $validated['groupId'] ?? $validated['group_id'] ?? null;
-
-        if ($expenseType === 'group' && ! $groupId) {
-            return response()->json([
-                'message' => 'Group is required when expense type is group.',
-                'errors' => ['groupId' => ['Select a group']],
-            ], 422);
-        }
-
-        $budgetId = $validated['budgetId'] ?? $validated['budget_id'] ?? null;
-        $expenseDate = $validated['date'] ?? $validated['expense_date'] ?? now()->toDateString();
-        $status = strtolower($validated['status'] ?? 'paid');
-
-        $groupMemberId = null;
-        if ($expenseType === 'group' && $groupId) {
-            $gm = GroupMember::where('group_id', $groupId)
-                ->where('user_id', $user->id)
-                ->first();
-            if ($gm) $groupMemberId = $gm->id;
-        }
-
-        $expense = Expense::create([
-            'user_id' => $user->id,
-            'group_id' => $expenseType === 'group' ? $groupId : null,
-            'group_member_id' => $groupMemberId,
-            'budget_id' => $budgetId,
-            'category_id' => $categoryId,
-            'title' => $title,
-            'description' => $validated['description'] ?? null,
-            'amount' => $validated['amount'],
-            'currency' => 'NGN',
-            'expense_type' => $expenseType,
-            'expense_date' => $expenseDate,
-            'status' => $status,
-        ]);
-
-        $expense->load(['category:id,category_name', 'group:id,group_name', 'budget:id,budget_name']);
-
-        return response()->json([
-            'success' => true,
-            'data' => array_merge($expense->toArray(), [
-                'name' => $expense->title,
-                'date' => $expense->expense_date->toDateString(),
-            ]),
-        ], 201);
     }
 
     /**
@@ -224,12 +255,14 @@ class ExpenseController extends Controller
     public function update(Request $request, string $id): JsonResponse
     {
         $user = $request->user();
-        $expense = Expense::where('id', $id)
-            ->where('user_id', $user->id)
-            ->first();
+        $expense = Expense::where('id', $id)->first();
 
         if (! $expense) {
-            return response()->json(['success' => false, 'message' => 'Expense not found or unauthorized.'], 403);
+            return response()->json(['success' => false, 'message' => 'Expense not found.'], 404);
+        }
+
+        if (! GroupPermissionHelper::canUpdate($user, $expense->group_id, $expense->user_id)) {
+            return response()->json(['success' => false, 'message' => 'Forbidden: You do not have permission to update this group expense.'], 403);
         }
 
         $validated = $request->validate([
@@ -270,7 +303,7 @@ class ExpenseController extends Controller
             'success' => true,
             'data' => array_merge($expense->toArray(), [
                 'name' => $expense->title,
-                'date' => $expense->expense_date->toDateString(),
+                'date' => $expense->expense_date ? $expense->expense_date->toDateString() : null,
             ]),
         ]);
     }
@@ -281,12 +314,14 @@ class ExpenseController extends Controller
     public function destroy(Request $request, string $id): JsonResponse
     {
         $user = $request->user();
-        $expense = Expense::where('id', $id)
-            ->where('user_id', $user->id)
-            ->first();
+        $expense = Expense::where('id', $id)->first();
 
         if (! $expense) {
-            return response()->json(['success' => false, 'message' => 'Expense not found or unauthorized.'], 403);
+            return response()->json(['success' => false, 'message' => 'Expense not found.'], 404);
+        }
+
+        if (! GroupPermissionHelper::canDelete($user, $expense->group_id, $expense->user_id)) {
+            return response()->json(['success' => false, 'message' => 'Forbidden: Only the expense owner or members with Full Access can delete this group expense.'], 403);
         }
 
         $expense->delete();

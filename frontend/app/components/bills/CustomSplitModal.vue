@@ -4,6 +4,7 @@ import Modal from '~/components/ui/Modal.vue'
 export interface GroupMember {
   id: string
   name: string
+  email?: string
 }
 
 interface Props {
@@ -53,10 +54,10 @@ function handleSubmit() {
 </script>
 
 <template>
-  <Modal v-model="isOpen" title="Custom Split" subtitle="Set how much each member owes.">
+  <Modal v-model="isOpen" title="Custom Split" subtitle="Set custom amount for each group member.">
     <div class="space-y-4">
       <div class="flex items-center justify-between">
-        <p class="text-xs text-slate-500">{{ members.length }} members</p>
+        <p class="text-xs text-slate-500">{{ members.length }} members in group</p>
         <button
           type="button"
           class="text-xs font-medium text-emerald-600 hover:text-emerald-700"
@@ -67,25 +68,31 @@ function handleSubmit() {
       </div>
 
       <div class="max-h-72 space-y-2.5 overflow-y-auto pr-1">
-        <div v-for="member in members" :key="member.id" class="flex items-center gap-3">
-          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-semibold text-emerald-700">
-            {{ member.name.slice(0, 2).toUpperCase() }}
-          </span>
-          <span class="flex-1 text-sm text-slate-700">{{ member.name }}</span>
-          <div class="relative w-32">
+        <div v-for="member in members" :key="member.id" class="flex items-center justify-between gap-3 rounded-xl border border-slate-100 p-2.5 hover:border-slate-200">
+          <div class="flex items-center gap-3 min-w-0">
+            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-xs font-bold text-indigo-700">
+              {{ member.name.slice(0, 2).toUpperCase() }}
+            </span>
+            <div class="flex flex-col min-w-0">
+              <span class="text-sm font-semibold text-slate-900 truncate">{{ member.name }}</span>
+              <span v-if="member.email" class="text-xs text-slate-400 truncate">{{ member.email }}</span>
+            </div>
+          </div>
+
+          <div class="relative w-32 shrink-0">
             <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-xs text-slate-400">₦</span>
             <input
               v-model="amounts[member.id]"
               type="number"
               step="0.01"
               placeholder="0.00"
-              class="w-full rounded-lg border border-slate-200 py-2 pl-7 pr-2 text-right text-sm text-slate-900 placeholder:text-slate-400 transition focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/30"
+              class="w-full rounded-lg border border-slate-200 py-2 pl-7 pr-2 text-right text-sm text-slate-900 placeholder:text-slate-400 transition focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
             />
           </div>
         </div>
 
-        <p v-if="members.length === 0" class="py-4 text-center text-sm text-slate-400">
-          No members found for this group.
+        <p v-if="members.length === 0" class="py-6 text-center text-sm text-slate-400">
+          No members found in this group.
         </p>
       </div>
 
@@ -98,9 +105,6 @@ function handleSubmit() {
           ₦{{ sum.toLocaleString() }} / ₦{{ Number(totalAmount || 0).toLocaleString() }}
         </span>
       </div>
-      <p v-if="!matchesTotal" class="-mt-2 text-xs text-amber-600">
-        This doesn't add up to the bill total yet — that's okay, it's just a heads up.
-      </p>
 
       <div class="flex justify-end gap-3 border-t border-slate-100 pt-5">
         <button
